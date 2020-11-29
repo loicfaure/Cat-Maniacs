@@ -2,6 +2,7 @@
 import React, { Component } from 'react'
 import { BrowserRouter as Router, Switch, Route, Link } from 'react-router-dom'
 import { CatListComponent } from './components/CatListComponent'
+import { CatCreationComponent } from './components/CatCreationComponent'
 import { CatViewComponent } from './components/CatViewComponent'
 import './App.css'
 
@@ -20,6 +21,7 @@ class App extends Component {
         <section className="w3-col l8 s12">
           <Switch>
             <Route exact path='/cats' component={CatListComponent} key="catList"/>
+            <Route path="/cats/new" component={CatCreationComponent} key="catView"/>
             <Route path="/cats/:id" component={CatViewComponent} key="catView"/>
           </Switch>
         </section>

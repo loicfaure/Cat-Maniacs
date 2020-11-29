@@ -39,6 +39,7 @@ export class CatListComponent extends Component {
     return (
       <div>
         <h2>Chats</h2>
+        <Link to={'/cats/new'}>Nouveau</Link>
         {cats.map(cat =>
           <SimpleCatComponent cat={cat} key={cat.id} />
         )}
