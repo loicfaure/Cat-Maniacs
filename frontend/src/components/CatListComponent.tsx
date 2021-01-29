@@ -17,7 +17,7 @@ export class SimpleCatComponent extends Component<CatState> {
   render () {
     return (
       <div>
-        <Link to={'/cats/' + this.state.id} className="nav-link">{this.state.name}</Link>
+        <Link to={'/cats/' + this.state._id} className="nav-link">{this.state.name}</Link>
       </div>
     )
   }
@@ -31,6 +31,7 @@ export class CatListComponent extends Component {
   async componentDidMount () {
     const response = await fetch('/api/cats')
     const body = await response.json()
+    console.log(body)
     this.setState({ cats: body })
   }
 
@@ -41,7 +42,7 @@ export class CatListComponent extends Component {
         <h2>Chats</h2>
         <Link to={'/cats/new'}>Nouveau</Link>
         {cats.map(cat =>
-          <SimpleCatComponent cat={cat} key={cat.id} />
+          <SimpleCatComponent cat={cat} key={cat._id} />
         )}
       </div>
     )

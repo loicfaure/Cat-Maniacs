@@ -1,24 +1,16 @@
 /* eslint-disable no-use-before-define */
 import React, { Component } from 'react'
 import { RouteComponentProps } from 'react-router'
+import { Cat, Gender } from '../model/Cat'
 
-enum Gender {
-  MALE = 0,
-  FEMALE = 1
-}
-
-type CatState = {
-  id: string,
-  name: string,
-  gender: Gender,
-  birthdate: Date,
-  submitted: boolean,
-  created: boolean
+class CatState extends Cat {
+  submitted: boolean = false
+  created: boolean = false
 }
 
 export class CatCreationComponent extends Component<RouteComponentProps<any>> {
   initialFormState: CatState = {
-    id: '',
+    _id: '',
     name: '',
     gender: Gender.MALE,
     birthdate: new Date(),
@@ -41,8 +33,12 @@ export class CatCreationComponent extends Component<RouteComponentProps<any>> {
       gender: this.state.gender,
       birthdate: this.state.birthdate
     }
-
+    console.log(JSON.stringify(data))
     fetch('/api/cats', {
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
       method: 'POST',
       body: JSON.stringify(data)
     }).then(response => {
@@ -51,7 +47,7 @@ export class CatCreationComponent extends Component<RouteComponentProps<any>> {
     }).catch(e => {
       console.log(e)
     })
-    this.setState(this.initialFormState)
+    // Redirect
   }
 
   handleInputChange (event: React.ChangeEvent<HTMLInputElement>) {
@@ -64,10 +60,10 @@ export class CatCreationComponent extends Component<RouteComponentProps<any>> {
     return (
       <form onSubmit={this.create}>
         <label>Name</label>
-        <input type="text" name="name" value={this.state.name} onChange={this.handleInputChange} />
-        <label>Username</label>
-        <input type="text" name="gender" value={this.state.gender} onChange={this.handleInputChange} />
-        <button>Add new user</button>
+        <input type="text" name="name" value={this.state.name} onChange={this.handleInputChange} /><br/>
+        <label>Genre</label>
+        <input type="text" name="gender" value={this.state.gender} onChange={this.handleInputChange} /><br/>
+        <input type="submit" value="Ajouter"/>
       </form>
     )
   }

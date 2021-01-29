@@ -4,13 +4,13 @@ import { BrowserRouter as Router, Switch, Route, Link } from 'react-router-dom'
 import { CatListComponent } from './components/CatListComponent'
 import { CatCreationComponent } from './components/CatCreationComponent'
 import { CatViewComponent } from './components/CatViewComponent'
-import './App.css'
+import './index.css'
 
 class App extends Component {
   render () {
     return (
       <Router>
-        <header className="w3-container w3-center w3-padding-32">
+        <header className="header">
           <h1>Cha&apos;mania</h1>
           <nav>
             <ul>
@@ -18,7 +18,7 @@ class App extends Component {
             </ul>
           </nav>
         </header>
-        <section className="w3-col l8 s12">
+        <section className="">
           <Switch>
             <Route exact path='/cats' component={CatListComponent} key="catList"/>
             <Route path="/cats/new" component={CatCreationComponent} key="catView"/>

@@ -1,8 +1,15 @@
+export enum Gender {
+  MALE = 0,
+  FEMALE = 1
+}
+
 export class Cat {
-    id: string;
-    name: string;
+    _id: string
+    name: string
+    gender: Gender = Gender.MALE
+    birthdate: Date = new Date()
     constructor (id: string, name: string) {
-      this.id = id
+      this._id = id
       this.name = name
     }
 }
