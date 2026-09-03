@@ -2,6 +2,8 @@
 
 Application Electron/TypeScript locale pour gérer le parcours des chats de Cha'Mania : enregistrement, familles d'accueil temporaires, refuge, adoptants définitifs, événements d'adoption, retours et import des anciens fichiers.
 
+![Tableau de bord de Cha'Mania en mode démonstration](docs/cat-maniacs-dashboard.png)
+
 ## Fonctionnalités du MVP
 
 - registre paginé des chats avec UUID interne, recherche, filtres de statut/stérilisation et tris par date ;
