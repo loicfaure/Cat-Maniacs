@@ -55,6 +55,7 @@ export function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
+  const [switchingDemo, setSwitchingDemo] = useState(false);
   useEffect(() => { window.catApp.bootstrap().then(setSnapshot).catch((error) => setNotice({ kind: "error", text: errorMessage(error) })); }, []);
   useEffect(() => {
     const showCat = (event: Event) => setSelectedCatId((event as CustomEvent<string>).detail);
@@ -68,6 +69,28 @@ export function App() {
       window.setTimeout(() => setNotice(null), 3500);
     } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); }
   };
+  const switchDemoMode = async () => {
+    if (!snapshot) return;
+    try {
+      setSwitchingDemo(true);
+      const enabled = !snapshot.demoMode;
+      setSnapshot(await window.catApp.setDemoMode(enabled));
+      setSelectedCatId(null);
+      setPage("dashboard");
+      setNotice({ kind: "success", text: enabled ? "Mode démo activé. Vos données réelles restent isolées." : "Mode démo quitté. Votre registre réel est ouvert." });
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setSwitchingDemo(false);
+    }
+  };
+  const dismissDemoWelcome = async () => {
+    try {
+      setSnapshot(await window.catApp.dismissDemoWelcome());
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    }
+  };
   if (!snapshot) return <div className="loading"><div className="cat-mark">C</div><p>Ouverture du registre…</p></div>;
   const pageTitle = PAGE_META.find((item) => item.id === page)?.label ?? "";
   return <div className="shell">
@@ -75,7 +98,8 @@ export function App() {
       <div className="brand"><div className="brand-mark">C</div><div><strong>Cha'Mania</strong><span>Registre félin</span></div></div>
       {snapshot.demoMode && <div className="demo-badge">Mode démo · {snapshot.cats.length} chats</div>}
       <nav>{PAGE_META.map((item) => <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "cats" && <small>{snapshot.cats.length}</small>}</button>)}</nav>
-      <div className="dataset-card"><span>Jeu de données</span><strong title={snapshot.datasetPath}>{snapshot.name}</strong><button disabled={snapshot.demoMode} onClick={async () => { const selected = await window.catApp.chooseDatasetDirectory(); if (selected) { setSnapshot(selected); setNotice({ kind: "success", text: "Jeu de données ouvert." }); } }}>{snapshot.demoMode ? "Dossier temporaire isolé" : "Changer de dossier"}</button></div>
+      <div className="dataset-card"><span>Jeu de données</span><strong title={snapshot.datasetPath}>{snapshot.name}</strong><button disabled={snapshot.demoMode} onClick={async () => { const selected = await window.catApp.chooseDatasetDirectory(); if (selected) { setSnapshot(selected); setNotice({ kind: "success", text: "Jeu de données ouvert." }); } }}>{snapshot.demoMode ? "Dossier de démonstration isolé" : "Changer de dossier"}</button></div>
+      <button className={`demo-switch ${snapshot.demoMode ? "active" : ""}`} disabled={switchingDemo} onClick={() => void switchDemoMode()}><span>{snapshot.demoMode ? "←" : "✦"}</span>{switchingDemo ? "Changement en cours…" : snapshot.demoMode ? "Quitter le mode démo" : "Essayer le mode démo"}</button>
     </aside>
     <main><header className="topbar"><div><span className="eyebrow">Gestion associative</span><h1>{pageTitle}</h1></div><div className="save-state"><span className="save-dot" />{snapshot.demoMode ? "Données de démonstration isolées" : "Sauvegarde locale active"}</div></header>
       {notice && <div className={`notice ${notice.kind}`}>{notice.text}<button onClick={() => setNotice(null)}>×</button></div>}
@@ -88,7 +112,7 @@ export function App() {
         {page === "refuge" && <RefugePage snapshot={snapshot} run={run} />}
         {page === "import" && <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />}
       </div>
-    </main>{selectedCatId && <CatDetail catId={selectedCatId} snapshot={snapshot} close={() => setSelectedCatId(null)} run={run} setSnapshot={setSnapshot} setNotice={setNotice}/>} 
+    </main>{snapshot.showDemoWelcome && <div className="demo-welcome-backdrop"><section className="demo-welcome" role="dialog" aria-modal="true" aria-labelledby="demo-welcome-title"><div className="demo-welcome-mark">C</div><span className="eyebrow">Première visite</span><h2 id="demo-welcome-title">Bienvenue dans le mode démo</h2><p>Explorez l'application avec 64 chats et des données entièrement fictives. Votre vrai registre reste séparé et ne sera jamais modifié pendant la démonstration.</p><ul><li>Testez les accueils, adoptions et journées d'adoption.</li><li>Les changements restent dans le dossier de démonstration.</li><li>Le mode démo restera actif entre les lancements.</li></ul><div className="demo-welcome-actions"><button className="button primary" disabled={switchingDemo} onClick={() => void dismissDemoWelcome()}>Explorer la démonstration</button><button className="button secondary" disabled={switchingDemo} onClick={() => void switchDemoMode()}>Utiliser mon registre</button></div><small>Vous pourrez changer de mode à tout moment avec le bouton en bas à gauche.</small></section></div>}{selectedCatId && <CatDetail catId={selectedCatId} snapshot={snapshot} close={() => setSelectedCatId(null)} run={run} setSnapshot={setSnapshot} setNotice={setNotice}/>}
   </div>;
 }
 

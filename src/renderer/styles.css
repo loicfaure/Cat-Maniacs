@@ -40,6 +40,10 @@ nav small { margin-left: auto; padding: 2px 7px; border-radius: 12px; background
 .dataset-card strong { display: block; margin: 5px 0 11px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; white-space: nowrap; }
 .dataset-card button { padding: 0; border: 0; color: #d7b47d; background: transparent; font-size: 12px; }
 .dataset-card button:disabled { color: #78877d; cursor: default; }
+.demo-switch { width: 100%; min-height: 41px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; padding: 9px 12px; border: 1px solid rgba(215,180,125,.32); border-radius: 10px; color: #e5c58f; background: rgba(215,180,125,.08); font-size: 11px; font-weight: 700; transition: .16s ease; }
+.demo-switch:hover:not(:disabled) { border-color: rgba(215,180,125,.62); background: rgba(215,180,125,.15); }
+.demo-switch.active { border-color: rgba(231,154,139,.38); color: #f0b7ab; background: rgba(196,105,91,.1); }
+.demo-switch:disabled { opacity: .55; cursor: wait; }
 
 main { grid-column: 2; min-width: 0; }
 .topbar { height: 102px; display: flex; align-items: center; justify-content: space-between; padding: 20px 38px; border-bottom: 1px solid var(--line); background: rgba(248,245,239,.82); backdrop-filter: blur(12px); }
@@ -55,6 +59,15 @@ main { grid-column: 2; min-width: 0; }
 .notice.success { background: #4e745c; }
 .notice.error { background: #a14f4b; }
 .notice button { margin-left: auto; border: 0; color: white; background: transparent; font-size: 20px; }
+
+.demo-welcome-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 30px; background: rgba(25,35,29,.58); backdrop-filter: blur(5px); }
+.demo-welcome { width: min(500px, 100%); padding: 38px; border: 1px solid rgba(255,255,255,.55); border-radius: 20px; background: #fbfaf6; box-shadow: 0 30px 90px rgba(20,29,24,.3); text-align: center; }
+.demo-welcome-mark { width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 20px; border-radius: 19px 19px 19px 6px; color: #27372f; background: #d7b47d; font: 700 26px Georgia, serif; }
+.demo-welcome h2 { margin: 7px 0 12px; color: var(--ink); font: 600 29px Georgia, serif; }
+.demo-welcome p { margin: 0; color: #68726b; font-size: 13px; line-height: 1.65; }
+.demo-welcome ul { display: grid; gap: 8px; margin: 22px 0; padding: 16px 18px 16px 34px; border-radius: 11px; color: #55645b; background: #edf2ed; font-size: 11px; line-height: 1.45; text-align: left; }
+.demo-welcome-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.demo-welcome small { display: block; margin-top: 14px; color: #8a918c; font-size: 10px; line-height: 1.45; }
 
 .hero-panel { min-height: 195px; display: flex; align-items: end; justify-content: space-between; gap: 30px; padding: 35px 38px; border-radius: 18px; color: #f3f3eb; background: linear-gradient(110deg, #30483c, #476354); box-shadow: var(--shadow); overflow: hidden; position: relative; }
 .hero-panel::after { content: ""; position: absolute; width: 270px; height: 270px; right: 8%; top: -160px; border: 44px solid rgba(255,255,255,.045); border-radius: 50%; }

@@ -7,6 +7,7 @@ import { deriveCatView } from "../domain/dataset";
 import { DatasetRepository } from "../infrastructure/datasetRepository";
 import { commitLegacyPreview, previewLegacyCsv } from "../legacy/legacyImport";
 import { IPC } from "../shared/ipc";
+import { loadAppPreferences, saveAppPreferences, type AppPreferences } from "./preferences";
 import type {
   AdoptionInput,
   AdoptionDayInput,
@@ -21,7 +22,12 @@ import type {
   PlacementInput
 } from "../shared/types";
 
-const demoMode = process.env.CAT_DISPENSER_DEMO === "1";
+const forcedDemoMode = process.env.CAT_DISPENSER_DEMO === "1";
+let demoMode = false;
+let showDemoWelcome = false;
+let preferences: AppPreferences;
+let preferencesPath = "";
+let demoDatasetDirectory = "";
 let repository: DatasetRepository;
 let dataset: Dataset;
 
@@ -30,6 +36,7 @@ function snapshot(): AppSnapshot {
     ...dataset,
     datasetPath: repository.directory,
     demoMode,
+    showDemoWelcome,
     catViews: dataset.cats.map((cat) => deriveCatView(dataset, cat))
   };
 }
@@ -39,6 +46,24 @@ async function openDataset(directory: string): Promise<AppSnapshot> {
   repository = opened.repository;
   dataset = opened.dataset;
   return snapshot();
+}
+
+async function activateMode(enabled: boolean, resetDemo = false): Promise<AppSnapshot> {
+  const previousMode = demoMode;
+  demoMode = enabled;
+  try {
+    const directory = enabled ? demoDatasetDirectory : preferences.realDatasetDirectory;
+    if (enabled && resetDemo) await rm(directory, { recursive: true, force: true });
+    await openDataset(directory);
+    if (enabled && dataset.cats.length === 0) {
+      dataset = createDemoDataset();
+      await repository.save(dataset, false);
+    }
+    return snapshot();
+  } catch (error) {
+    demoMode = previousMode;
+    throw error;
+  }
 }
 
 async function mutate(action: (service: CatService, draft: Dataset) => void): Promise<AppSnapshot> {
@@ -63,6 +88,23 @@ function handle(channel: string, callback: (event: IpcMainInvokeEvent, ...args: 
 
 function registerHandlers(): void {
   handle(IPC.bootstrap, async () => snapshot());
+  handle(IPC.setDemoMode, async (_event, enabled: boolean) => {
+    if (typeof enabled !== "boolean") throw new Error("Mode de démonstration invalide.");
+    const nextSnapshot = await activateMode(enabled);
+    preferences.demoMode = enabled;
+    if (!enabled) {
+      preferences.demoWelcomeSeen = true;
+      showDemoWelcome = false;
+    }
+    await saveAppPreferences(preferencesPath, preferences);
+    return { ...nextSnapshot, showDemoWelcome };
+  });
+  handle(IPC.dismissDemoWelcome, async () => {
+    showDemoWelcome = false;
+    preferences.demoWelcomeSeen = true;
+    await saveAppPreferences(preferencesPath, preferences);
+    return snapshot();
+  });
   handle(IPC.createCat, async (_event, input: CatInput) => mutate((service) => void service.createCat(input)));
   handle(IPC.updateCat, async (_event, input: CatUpdateInput) => mutate((service) => void service.updateCat(input)));
   handle(IPC.createFamily, async (_event, input: FamilyInput) => mutate((service) => void service.createFamily(input)));
@@ -115,7 +157,11 @@ function registerHandlers(): void {
   handle(IPC.getHealthExposures, async (_event, healthAlertId: string) => new CatService(dataset).getHealthExposures(healthAlertId));
   handle(IPC.chooseDataset, async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
-    return result.canceled || !result.filePaths[0] ? null : openDataset(result.filePaths[0]);
+    if (result.canceled || !result.filePaths[0]) return null;
+    const opened = await openDataset(result.filePaths[0]);
+    preferences.realDatasetDirectory = result.filePaths[0];
+    await saveAppPreferences(preferencesPath, preferences);
+    return opened;
   });
   handle(IPC.chooseLegacyCsv, async () => {
     const result = await dialog.showOpenDialog({
@@ -159,17 +205,13 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
-  const datasetDirectory = demoMode
-    ? join(app.getPath("temp"), "cat-dispenser-demo-dataset")
-    : join(app.getPath("userData"), "dataset");
-  if (demoMode && process.env.CAT_DISPENSER_DEMO_RESET === "1") {
-    await rm(datasetDirectory, { recursive: true, force: true });
-  }
-  await openDataset(datasetDirectory);
-  if (demoMode && dataset.cats.length === 0) {
-    dataset = createDemoDataset();
-    await repository.save(dataset, false);
-  }
+  const userDataDirectory = app.getPath("userData");
+  preferencesPath = join(userDataDirectory, "app-preferences.json");
+  demoDatasetDirectory = join(userDataDirectory, "demo-dataset");
+  preferences = await loadAppPreferences(preferencesPath, join(userDataDirectory, "dataset"));
+  showDemoWelcome = !preferences.demoWelcomeSeen;
+  await saveAppPreferences(preferencesPath, preferences);
+  await activateMode(forcedDemoMode || preferences.demoMode, forcedDemoMode && process.env.CAT_DISPENSER_DEMO_RESET === "1");
   registerHandlers();
   createWindow();
   app.on("activate", () => {

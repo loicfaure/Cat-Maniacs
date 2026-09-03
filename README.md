@@ -84,20 +84,20 @@ npm run dist:win   # installateur Windows x64 (à lancer sous Windows)
 
 ## Publier une version
 
-Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`) et deux paquets Linux (`.AppImage` et `.deb`). Un lancement manuel conserve les paquets comme artefacts pendant 14 jours sans créer de release.
+Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`) et deux paquets Linux (`.AppImage` et `.deb`).
 
-Pour publier une GitHub Release, mettre à jour la version de `package.json`, puis pousser le tag correspondant exactement à cette version. Par exemple, pour la version `0.1.0` :
+- **Dry run** (activé par défaut) : un lancement manuel produit les paquets et les conserve comme artefacts pendant 14 jours, sans créer de tag ni de release.
+- **Publication** : mettre à jour la version de `package.json`, lancer manuellement le workflow et désactiver `dry_run`. Après la réussite des builds Windows et Linux, le job de publication crée lui-même le tag `v<version>` puis la GitHub Release.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+Un tag `v*` poussé manuellement reste également pris en charge. Le workflow vérifie alors qu'il correspond exactement à la version de `package.json`.
 
 La release contient également `SHA256SUMS.txt`. Les exécutables ne sont pas encore signés : Windows peut donc afficher un avertissement SmartScreen jusqu'à l'ajout d'un certificat de signature.
 
 ### Mode démonstration
 
-`npm run demo` ouvre un registre temporaire distinct des vraies données. Il est recréé à chaque lancement avec 64 chats, des familles d'accueil, des adoptants distincts, trois zones de refuge, des placements, des adoptions et retours, deux événements, des vacances et une alerte sanitaire. La famille « Maison des cinq chats » permet de tester immédiatement l'ajout d'un cheptel complet à une journée d'adoption.
+Au premier lancement, l'application ouvre automatiquement un registre de démonstration distinct des vraies données et explique son fonctionnement. La fenêtre de bienvenue permet aussi de choisir immédiatement **Utiliser mon registre** sans activer durablement la démonstration. Le mode choisi reste actif entre les lancements ; le bouton en bas à gauche permet ensuite de changer de mode sans mélanger les deux registres.
+
+Le registre de démonstration contient 64 chats, des familles d'accueil, des adoptants distincts, trois zones de refuge, des placements, des adoptions et retours, deux événements, des vacances et une alerte sanitaire. La famille « Maison des cinq chats » permet de tester immédiatement l'ajout d'un cheptel complet à une journée d'adoption. `npm run demo` force ce mode et réinitialise ses données pour les tests manuels.
 
 ## Prochaine intégration
 

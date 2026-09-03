@@ -1,5 +1,7 @@
 export const IPC = {
   bootstrap: "dataset:bootstrap",
+  setDemoMode: "demo:set-mode",
+  dismissDemoWelcome: "demo:dismiss-welcome",
   chooseDataset: "dataset:choose",
   createCat: "cats:create",
   updateCat: "cats:update",
