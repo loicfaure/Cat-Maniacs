@@ -1,0 +1,46 @@
+appId: fr.chamania.catdispenser
+productName: "Cha Mania"
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+asar: true
+npmRebuild: false
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: "Cat-Dispenser-${version}-Windows-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: "Cha'Mania"
+
+linux:
+  icon: build/icon.png
+  syncDesktopName: true
+  category: Office
+  synopsis: Gestion locale du parcours des chats de Cha'Mania
+  description: Application locale pour gérer les chats, accueils, adoptions et journées d'adoption.
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  artifactName: "Cat-Dispenser-${version}-Linux-${arch}.${ext}"
+
+deb:
+  maintainer: "Cha'Mania"

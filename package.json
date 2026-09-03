@@ -1,0 +1,40 @@
+{
+  "name": "cat-dispenser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first cat association management desktop application",
+  "homepage": "https://github.com/",
+  "author": "Cha'Mania",
+  "license": "UNLICENSED",
+  "desktopName": "ChaMania",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "npm run build && node scripts/run-electron.mjs",
+    "demo": "npm run build && node scripts/run-demo.mjs",
+    "build": "node scripts/build.mjs",
+    "dist:linux": "npm run build && electron-builder --linux --x64 --publish never",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
+    "privacy": "node scripts/check-publication.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --configLoader runner",
+    "test:watch": "vitest --configLoader runner",
+    "check": "npm run privacy && npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "electron": "43.2.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "0.28.1",
+    "jsdom": "30.0.1",
+    "typescript": "6.0.3",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
+  }
+}

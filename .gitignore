@@ -1,0 +1,27 @@
+node_modules/
+dist/
+dist-electron/
+release/
+coverage/
+*.log
+.DS_Store
+*.tmp
+
+# Local datasets and exports may contain adopter or foster-family details.
+dataset/
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.ods
+
+# Local credentials and signing material.
+.env
+.env.*
+!.env.example
+credentials*.json
+secrets*.json
+*.pem
+*.key
+*.p12
+*.pfx
