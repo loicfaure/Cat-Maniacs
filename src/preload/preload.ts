@@ -4,6 +4,8 @@ import type { CatAppApi } from "../shared/types";
 
 const api: CatAppApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.bootstrap),
+  setDemoMode: (enabled) => ipcRenderer.invoke(IPC.setDemoMode, enabled),
+  dismissDemoWelcome: () => ipcRenderer.invoke(IPC.dismissDemoWelcome),
   createCat: (input) => ipcRenderer.invoke(IPC.createCat, input),
   updateCat: (input) => ipcRenderer.invoke(IPC.updateCat, input),
   createFamily: (input) => ipcRenderer.invoke(IPC.createFamily, input),

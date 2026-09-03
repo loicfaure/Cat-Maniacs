@@ -227,6 +227,7 @@ export interface CatView extends Cat {
 export interface AppSnapshot extends Dataset {
   datasetPath: string;
   demoMode: boolean;
+  showDemoWelcome: boolean;
   catViews: CatView[];
 }
 
@@ -325,6 +326,8 @@ export interface ImportCommitResult { importedCats: number; importedFamilies: nu
 
 export interface CatAppApi {
   bootstrap(): Promise<AppSnapshot>;
+  setDemoMode(enabled: boolean): Promise<AppSnapshot>;
+  dismissDemoWelcome(): Promise<AppSnapshot>;
   createCat(input: CatInput): Promise<AppSnapshot>;
   updateCat(input: CatUpdateInput): Promise<AppSnapshot>;
   createFamily(input: FamilyInput): Promise<AppSnapshot>;
