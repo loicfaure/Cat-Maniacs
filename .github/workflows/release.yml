@@ -8,6 +8,15 @@ on:
         required: true
         type: boolean
         default: true
+      release_type:
+        description: GitHub Release type (ignored for dry runs)
+        required: true
+        type: choice
+        default: stable
+        options:
+          - stable
+          - prerelease
+          - draft
   push:
     tags:
       - "v*"
@@ -86,9 +95,6 @@ jobs:
           path: |
             release/*.exe
             release/*.AppImage
-            release/*.deb
-            release/*.blockmap
-            release/*.yml
 
   release:
     name: Publish GitHub Release
@@ -134,18 +140,45 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Create checksums
-        working-directory: release
-        run: sha256sum * > SHA256SUMS.txt
-
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release_tag.outputs.name }}
+          RELEASE_TYPE: ${{ inputs.release_type || 'stable' }}
         shell: bash
         run: |
-          gh release view "${RELEASE_TAG}" >/dev/null 2>&1 || gh release create "${RELEASE_TAG}" --verify-tag --generate-notes --title "Cha'Mania ${RELEASE_TAG}"
-          gh release upload "${RELEASE_TAG}" release/* --clobber
+          set -euo pipefail
+
+          create_flags=()
+          edit_flags=(--draft=false --prerelease=false)
+          case "${RELEASE_TYPE}" in
+            stable)
+              ;;
+            prerelease)
+              create_flags+=(--prerelease)
+              edit_flags=(--draft=false --prerelease=true)
+              ;;
+            draft)
+              create_flags+=(--draft)
+              edit_flags=(--draft=true --prerelease=false)
+              ;;
+            *)
+              echo "Unsupported release type: ${RELEASE_TYPE}" >&2
+              exit 1
+              ;;
+          esac
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" "${edit_flags[@]}" --title "Cha'Mania ${RELEASE_TAG}"
+          else
+            gh release create "${RELEASE_TAG}" --verify-tag --generate-notes --title "Cha'Mania ${RELEASE_TAG}" "${create_flags[@]}"
+          fi
+
+          mapfile -t existing_assets < <(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name')
+          for asset in "${existing_assets[@]}"; do
+            gh release delete-asset "${RELEASE_TAG}" "${asset}" --yes
+          done
+          gh release upload "${RELEASE_TAG}" release/*.exe release/*.AppImage
 
   dry-run-summary:
     name: Dry run complete
@@ -156,4 +189,4 @@ jobs:
       - name: Summarize dry run
         run: |
           echo "## Dry run complete" >> "${GITHUB_STEP_SUMMARY}"
-          echo "Windows and Linux packages are available in this workflow run's artifacts. No tag or GitHub Release was created." >> "${GITHUB_STEP_SUMMARY}"
+          echo "The Windows .exe and Linux .AppImage are available in this workflow run's artifacts. No tag or GitHub Release was created." >> "${GITHUB_STEP_SUMMARY}"

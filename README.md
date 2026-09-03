@@ -78,20 +78,20 @@ npm run typecheck
 npm test
 npm run build
 npm run check      # confidentialité + typecheck + tests + build
-npm run dist:linux # AppImage et paquet Debian x64
+npm run dist:linux # AppImage Linux x64
 npm run dist:win   # installateur Windows x64 (à lancer sous Windows)
 ```
 
 ## Publier une version
 
-Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`) et deux paquets Linux (`.AppImage` et `.deb`).
+Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`) et une application Linux (`.AppImage`). Ce sont les deux seuls fichiers applicatifs ajoutés à la release ; GitHub affiche également ses archives automatiques du code source.
 
 - **Dry run** (activé par défaut) : un lancement manuel produit les paquets et les conserve comme artefacts pendant 14 jours, sans créer de tag ni de release.
-- **Publication** : mettre à jour la version de `package.json`, lancer manuellement le workflow et désactiver `dry_run`. Après la réussite des builds Windows et Linux, le job de publication crée lui-même le tag `v<version>` puis la GitHub Release.
+- **Publication** : mettre à jour la version de `package.json`, lancer manuellement le workflow, désactiver `dry_run`, puis choisir `stable`, `prerelease` ou `draft`. Après la réussite des builds Windows et Linux, le job de publication crée lui-même le tag `v<version>` puis la GitHub Release du type demandé.
 
 Un tag `v*` poussé manuellement reste également pris en charge. Le workflow vérifie alors qu'il correspond exactement à la version de `package.json`.
 
-La release contient également `SHA256SUMS.txt`. Les exécutables ne sont pas encore signés : Windows peut donc afficher un avertissement SmartScreen jusqu'à l'ajout d'un certificat de signature.
+Les exécutables ne sont pas encore signés : Windows peut donc afficher un avertissement SmartScreen jusqu'à l'ajout d'un certificat de signature.
 
 ### Mode démonstration
 
