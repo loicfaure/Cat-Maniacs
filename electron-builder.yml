@@ -37,10 +37,4 @@ linux:
     - target: AppImage
       arch:
         - x64
-    - target: deb
-      arch:
-        - x64
   artifactName: "Cat-Dispenser-${version}-Linux-${arch}.${ext}"
-
-deb:
-  maintainer: "Cha'Mania"
