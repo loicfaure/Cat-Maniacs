@@ -6,7 +6,7 @@ import { findHealthExposures } from "../domain/healthTracing";
 import type {
   AdopterInput, AdoptionDayInput, AdoptionDaySuggestionGroup, AdoptionInput,
   AdoptionWithNewFamilyInput, CatEventType, CatInput, CatUpdateInput, Dataset,
-  FamilyInput, HealthExposure, PlacementAssessment, PlacementInput
+  CareRecordInput, CatHistoryInput, FamilyInput, HealthExposure, PlacementAssessment, PlacementInput, SponsorshipInput, TaskInput
 } from "../shared/types";
 
 const EMAIL_PATTERN = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
@@ -14,6 +14,7 @@ const now = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 const id = () => crypto.randomUUID();
 const touch = (dataset: Dataset) => { dataset.updatedAt = now(); };
+function isSterilizationTask(type: string): boolean { return type.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("sterilis") || ["neutering", "spay", "castration"].some((word) => type.toLowerCase().includes(word)); }
 
 function addEvent(dataset: Dataset, catId: string, type: CatEventType, date: string, notes = ""): void {
   dataset.catEvents.push({ id: id(), catId, type, date, notes, createdAt: now() });
@@ -39,6 +40,9 @@ export class CatService {
       profile: input.profile ?? "ADULT", sterilizationStatus: input.sterilizationStatus ?? "UNKNOWN",
       adoptionEligibility: input.adoptionEligibility ?? "ELIGIBLE", adoptionBlockedReason: input.adoptionBlockedReason?.trim() ?? "",
       healthStatus: input.healthStatus ?? "HEALTHY", intakeDate, notes: input.notes?.trim() ?? "",
+      description: input.description?.trim() ?? "", photo: input.photo?.trim() ?? "", okWithCats: input.okWithCats ?? null,
+      okWithDogs: input.okWithDogs ?? null, okWithChildren: input.okWithChildren ?? null, medications: input.medications?.trim() ?? "", medicationSchedule: input.medicationSchedule?.trim() ?? "", medicationEndDate: input.medicationEndDate ?? "",
+      vaccines: input.vaccines?.trim() ?? "", deworming: input.deworming?.trim() ?? "",
       createdAt: timestamp, updatedAt: timestamp
     });
     addEvent(this.dataset, catId, "REGISTERED", intakeDate);
@@ -54,11 +58,71 @@ export class CatService {
       if (number && this.dataset.cats.some((candidate) => candidate.id !== cat.id && candidate.identificationNumber === number)) throw new Error("Ce numéro d'identification est déjà utilisé.");
       cat.identificationNumber = number;
     }
-    const fields: Array<keyof CatInput> = ["name", "birthDate", "sex", "profile", "sterilizationStatus", "adoptionEligibility", "adoptionBlockedReason", "healthStatus", "intakeDate", "notes"];
+    const fields: Array<keyof CatInput> = ["name", "birthDate", "sex", "profile", "sterilizationStatus", "adoptionEligibility", "adoptionBlockedReason", "healthStatus", "intakeDate", "notes", "description", "photo", "okWithCats", "okWithDogs", "okWithChildren", "medications", "medicationSchedule", "medicationEndDate", "vaccines", "deworming"];
     for (const field of fields) if (input[field] !== undefined) (cat as unknown as Record<string, unknown>)[field] = typeof input[field] === "string" ? input[field].trim() : input[field];
     cat.updatedAt = now();
     touch(this.dataset);
     return this.dataset;
+  }
+
+  createSponsorship(input: SponsorshipInput, sponsorshipId?: string): Dataset {
+    const cat = requireCat(this.dataset, input.catId);
+    if (getCatStatus(this.dataset, cat.id) === "DECEASED") throw new Error("Un chat décédé ne peut pas avoir de parrainage actif.");
+    if (!input.firstName.trim() && !input.lastName.trim()) throw new Error("Le nom du parrain ou de la marraine est obligatoire.");
+    if (!Number.isFinite(input.monthlyAmount) || input.monthlyAmount <= 0) throw new Error("Le montant mensuel doit être supérieur à zéro.");
+    assertIsoDate(input.startDate, "La date de début");
+    if (input.endDate) { assertIsoDate(input.endDate, "La date de fin"); if (input.endDate < input.startDate) throw new Error("La date de fin précède la date de début."); }
+    const timestamp = now();
+    const existing = sponsorshipId ? this.dataset.sponsorships.find((row) => row.id === sponsorshipId) : undefined;
+    if (sponsorshipId && !existing) throw new Error("Parrainage introuvable.");
+    const row = { id: existing?.id ?? id(), catId: input.catId, firstName: input.firstName.trim(), lastName: input.lastName.trim(), email: input.email?.trim() ?? "", monthlyAmount: input.monthlyAmount, startDate: input.startDate, endDate: input.endDate ?? "", paymentNotes: input.paymentNotes?.trim() ?? "", notes: input.notes?.trim() ?? "", createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp };
+    if (existing) Object.assign(existing, row); else this.dataset.sponsorships.push(row);
+    touch(this.dataset); return this.dataset;
+  }
+
+  declareCatDeceased(catId: string, date: string, notes = ""): Dataset {
+    const cat = requireCat(this.dataset, catId);
+    if (getCatStatus(this.dataset, catId) === "DECEASED") throw new Error(`${cat.name} est déjà déclaré décédé.`);
+    assertIsoDate(date, "La date du décès");
+    const timestamp = now();
+    addEvent(this.dataset, catId, "DECEASED", date, notes.trim());
+    for (const sponsorship of this.dataset.sponsorships) {
+      if (sponsorship.catId === catId && !sponsorship.endDate) { sponsorship.endDate = date; sponsorship.updatedAt = timestamp; }
+    }
+    for (const task of this.dataset.tasks) {
+      if (task.catId === catId && task.status === "OPEN") { task.status = "CANCELLED"; task.updatedAt = timestamp; }
+    }
+    touch(this.dataset);
+    return this.dataset;
+  }
+
+  createTask(input: TaskInput): Dataset { requireCat(this.dataset, input.catId); assertIsoDate(input.dueDate, "La date du soin"); const timestamp = now(); this.dataset.tasks.push({ id: id(), catId: input.catId, type: input.type, status: "OPEN", dueDate: input.dueDate, completedAt: "", notes: input.notes?.trim() ?? "", createdAt: timestamp, updatedAt: timestamp }); touch(this.dataset); return this.dataset; }
+  recordCare(input: CareRecordInput): Dataset {
+    requireCat(this.dataset, input.catId); assertIsoDate(input.completedAt, "La date du soin effectué");
+    if (input.nextDueDate) { assertIsoDate(input.nextDueDate, "La prochaine échéance"); if (input.nextDueDate < input.completedAt) throw new Error("La prochaine échéance précède la date du soin."); }
+    const timestamp = now();
+    this.dataset.tasks.push({ id: id(), catId: input.catId, type: input.type, status: "DONE", dueDate: input.completedAt, completedAt: input.completedAt, notes: input.notes?.trim() ?? "", createdAt: timestamp, updatedAt: timestamp });
+    if (input.nextDueDate) this.dataset.tasks.push({ id: id(), catId: input.catId, type: input.type, status: "OPEN", dueDate: input.nextDueDate, completedAt: "", notes: input.notes?.trim() ?? "", createdAt: timestamp, updatedAt: timestamp });
+    touch(this.dataset); return this.dataset;
+  }
+  recordCatHistory(input: CatHistoryInput): Dataset {
+    requireCat(this.dataset, input.catId);
+    if (!input.title.trim()) throw new Error("Le titre de l'événement est obligatoire.");
+    assertIsoDate(input.date, "La date de l'événement");
+    if (input.nextDate) { assertIsoDate(input.nextDate, "La prochaine échéance"); if (input.nextDate < input.date) throw new Error("La prochaine échéance précède l'événement."); }
+    const timestamp = now();
+    this.dataset.catEvents.push({ id: id(), catId: input.catId, type: "NOTE_ADDED", date: input.date, label: input.title.trim(), notes: input.notes?.trim() ?? "", createdAt: timestamp });
+    if (input.nextDate) this.dataset.tasks.push({ id: id(), catId: input.catId, type: input.title.trim(), status: "OPEN", dueDate: input.nextDate, completedAt: "", notes: input.notes?.trim() ?? "", createdAt: timestamp, updatedAt: timestamp });
+    touch(this.dataset); return this.dataset;
+  }
+  completeTask(taskId: string, completedAt: string, nextDueDate?: string): Dataset {
+    const task = this.dataset.tasks.find((item) => item.id === taskId);
+    if (!task || task.status !== "OPEN") throw new Error("Soin à terminer introuvable.");
+    assertIsoDate(completedAt, "La date du soin effectué");
+    if (nextDueDate) { assertIsoDate(nextDueDate, "La prochaine échéance"); if (nextDueDate < completedAt) throw new Error("La prochaine échéance précède la date du soin."); }
+    task.status = "DONE"; task.completedAt = completedAt; task.updatedAt = now();
+    if (nextDueDate) { const timestamp = now(); this.dataset.tasks.push({ id: id(), catId: task.catId, type: task.type, status: "OPEN", dueDate: nextDueDate, completedAt: "", notes: task.notes, createdAt: timestamp, updatedAt: timestamp }); }
+    touch(this.dataset); return this.dataset;
   }
 
   createFamily(input: FamilyInput): Dataset {
@@ -191,6 +255,7 @@ export class CatService {
         const state = cat.adoptionEligibility === "INELIGIBLE" ? "non adoptable" : "en attente d'adoption";
         throw new Error(`${cat.name} est déclaré ${state} : ${cat.adoptionBlockedReason || "raison non précisée"}. Confirmez la dérogation pour continuer.`);
       }
+      for (const task of this.dataset.tasks) if (task.catId === cat.id && task.status === "OPEN") { task.status = "CANCELLED"; task.updatedAt = now(); }
     }
     const groupId = id();
     for (const cat of cats) {
@@ -224,6 +289,8 @@ export class CatService {
     if (!adoption) throw new Error("Adoption active introuvable.");
     if (date < adoption.adoptionDate) throw new Error("Le retour précède l'adoption.");
     adoption.status = "RETURNED"; adoption.endedAt = date; adoption.updatedAt = now();
+    // Care reminders belong to the association and resume when an adopted cat returns.
+    for (const task of this.dataset.tasks) if (task.catId === adoption.catId && task.status === "CANCELLED") { task.status = "OPEN"; task.updatedAt = now(); }
     addEvent(this.dataset, adoption.catId, "RETURNED", date, notes); touch(this.dataset); return this.dataset;
   }
 

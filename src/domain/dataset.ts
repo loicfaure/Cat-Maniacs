@@ -3,7 +3,7 @@ import type {
   FosterPlacement, RefugeStay
 } from "../shared/types";
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export function createEmptyDataset(name = "Gestion des chats"): Dataset {
   const now = new Date().toISOString();
@@ -27,7 +27,7 @@ export function createEmptyDataset(name = "Gestion des chats"): Dataset {
     healthAlerts: [],
     catEvents: [],
     tasks: [],
-    followUps: []
+    followUps: [], sponsorships: []
   };
 }
 
@@ -138,6 +138,7 @@ export function validateDatasetReferences(dataset: Dataset): string[] {
   for (const alert of dataset.healthAlerts) if (!catIds.has(alert.catId)) errors.push(`Alerte ${alert.id}: chat absent.`);
   for (const event of dataset.catEvents) if (!catIds.has(event.catId)) errors.push(`Événement ${event.id}: chat absent.`);
   for (const task of dataset.tasks) if (!catIds.has(task.catId)) errors.push(`Tâche ${task.id}: chat absent.`);
+  for (const sponsorship of dataset.sponsorships) if (!catIds.has(sponsorship.catId)) errors.push(`Parrainage ${sponsorship.id}: chat absent.`);
   for (const followUp of dataset.followUps) {
     if (!catIds.has(followUp.catId)) errors.push(`Relance ${followUp.id}: chat absent.`);
     if (followUp.adoptionId && !adoptionIds.has(followUp.adoptionId)) errors.push(`Relance ${followUp.id}: adoption absente.`);

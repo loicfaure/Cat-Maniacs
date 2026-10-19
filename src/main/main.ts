@@ -155,6 +155,13 @@ function registerHandlers(): void {
   handle(IPC.resolveHealthAlert, async (_event, input: { alertId: string; resolvedAt: string; notes?: string }) =>
     mutate((service) => void service.resolveHealthAlert(input.alertId, input.resolvedAt, input.notes)));
   handle(IPC.getHealthExposures, async (_event, healthAlertId: string) => new CatService(dataset).getHealthExposures(healthAlertId));
+  handle(IPC.createSponsorship, async (_event, input: import("../shared/types").SponsorshipInput) => mutate((service) => void service.createSponsorship(input)));
+  handle(IPC.updateSponsorship, async (_event, input: import("../shared/types").SponsorshipInput & { id: string }) => mutate((service) => void service.createSponsorship(input, input.id)));
+  handle(IPC.declareCatDeceased, async (_event, input: { catId: string; date: string; notes?: string }) => mutate((service) => void service.declareCatDeceased(input.catId, input.date, input.notes)));
+  handle(IPC.createTask, async (_event, input: import("../shared/types").TaskInput) => mutate((service) => void service.createTask(input)));
+  handle(IPC.recordCare, async (_event, input: import("../shared/types").CareRecordInput) => mutate((service) => void service.recordCare(input)));
+  handle(IPC.recordCatHistory, async (_event, input: import("../shared/types").CatHistoryInput) => mutate((service) => void service.recordCatHistory(input)));
+  handle(IPC.completeTask, async (_event, input: { id: string; completedAt: string; nextDueDate?: string }) => mutate((service) => void service.completeTask(input.id, input.completedAt, input.nextDueDate)));
   handle(IPC.chooseDataset, async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
     if (result.canceled || !result.filePaths[0]) return null;

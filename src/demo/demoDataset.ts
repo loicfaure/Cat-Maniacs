@@ -32,6 +32,7 @@ const ADOPTERS = [
 
 const PROFILES: CatProfile[] = ["KITTEN", "ADULT", "ADULT", "SENIOR", "SPECIAL_NEEDS", "BOTTLE_KITTEN"];
 const ALL_PROFILES: CatProfile[] = ["BOTTLE_KITTEN", "KITTEN", "ADULT", "SENIOR", "SPECIAL_NEEDS"];
+const dateAfterDays = (days: number) => { const date = new Date(); date.setDate(date.getDate() + days); return date.toISOString().slice(0, 10); };
 
 export function createDemoDataset(): Dataset {
   const dataset = createEmptyDataset("Démonstration Cha'Mania");
@@ -52,7 +53,17 @@ export function createDemoDataset(): Dataset {
       sterilizationStatus,
       adoptionEligibility,
       adoptionBlockedReason: index === 18 ? "Traitement longue durée" : index === 19 ? "Chat trop craintif" : index === 6 ? "Bilan vétérinaire en attente" : "",
-      notes: index % 8 === 0 ? "Chat sociable, habitué à la vie en appartement." : ""
+      notes: index % 8 === 0 ? "Chat sociable, habitué à la vie en appartement." : "",
+      description: index < 8 ? ["Très câline et joueuse, adore les siestes au soleil.", "Curieux et gourmand, il vient facilement au contact.", "Douce, un peu réservée au début, puis très proche de sa famille.", "Chat calme qui apprécie les endroits tranquilles."][index % 4] : "Chat suivi par l'association, en attente de sa famille.",
+      photo: index < 4 ? `https://placehold.co/600x400/png?text=${encodeURIComponent(name)}` : "",
+      okWithCats: index % 5 === 0 ? false : index % 5 === 1 ? null : true,
+      okWithDogs: index % 4 === 0 ? false : index % 4 === 1 ? null : true,
+      okWithChildren: index % 6 === 0 ? false : index % 6 === 1 ? null : true,
+      medications: index === 4 ? "Antibiotique · 1 comprimé" : index === 18 ? "Traitement à préciser avec le vétérinaire" : "",
+      medicationSchedule: index === 4 ? "08:00 et 20:00" : index === 18 ? "Chaque jour" : "",
+      medicationEndDate: index === 4 ? "2026-10-25" : "",
+      vaccines: index % 3 === 0 ? "Rappel prévu le 28/10/2026" : "Primo-vaccination à jour",
+      deworming: index % 4 === 0 ? "À renouveler prochainement" : "Dernière prise le 01/09/2026"
     });
   });
 
@@ -72,6 +83,17 @@ export function createDemoDataset(): Dataset {
     email: `${firstName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()}.${lastName.toLowerCase()}@example.test`,
     phone: `00 00 00 00 ${String(index + 20).padStart(2, "0")}`,
     address: `Adresse fictive ${index + 20}`
+  }));
+
+  const sponsors = [
+    ["Camille", "Petit", 20, 0], ["Julien", "Marchand", 15, 1], ["Nadia", "Leroux", 30, 2],
+    ["Thomas", "Garnier", 10, 3], ["Sophie", "Blanc", 25, 4], ["Émilie", "Roux", 15, 5]
+  ] as const;
+  sponsors.forEach(([firstName, lastName, monthlyAmount, catIndex], index) => service.createSponsorship({
+    catId: dataset.cats[catIndex].id, firstName, lastName,
+    email: `${firstName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()}.${lastName.toLowerCase()}@example.test`,
+    monthlyAmount, startDate: `2026-0${(index % 8) + 1}-01`, paymentNotes: index % 2 === 0 ? "Virement reçu en octobre" : "À vérifier pour octobre",
+    notes: index === 2 ? "Souhaite recevoir des nouvelles avec photos" : "Parrainage mensuel"
   }));
 
   // A five-cat household makes the bulk “tout le cheptel” workflow immediately visible.
@@ -126,11 +148,20 @@ export function createDemoDataset(): Dataset {
     { id: crypto.randomUUID(), catId: dataset.cats[37].id, type: "DECEASED", date: "2026-07-12", notes: "Donnée de démonstration", createdAt: timestamp }
   );
 
-  dataset.cats.filter((cat) => cat.sterilizationStatus === "TODO").slice(0, 12).forEach((cat, index) => dataset.tasks.push({
+  dataset.cats.filter((cat) => cat.sterilizationStatus === "TODO").forEach((cat, index) => dataset.tasks.push({
     id: crypto.randomUUID(), catId: cat.id, type: "Stérilisation", status: "OPEN",
     dueDate: `2026-09-${String((index % 20) + 1).padStart(2, "0")}`, completedAt: "",
     notes: "Tâche de démonstration", createdAt: timestamp, updatedAt: timestamp
   }));
+
+  [
+    { catIndex: 0, type: "VERMIFUGE" as const, days: 1, notes: "Milbemax · dose selon le poids" },
+    { catIndex: 2, type: "VACCIN" as const, days: 3, notes: "Rappel typhus-coryza" },
+    { catIndex: 4, type: "VERMIFUGE" as const, days: 5, notes: "À donner après la fin de l'antibiotique" },
+    { catIndex: 6, type: "VACCIN" as const, days: 8, notes: "Primo-vaccination" },
+    { catIndex: 8, type: "VERMIFUGE" as const, days: 12, notes: "Drontal · vérifier le poids" },
+    { catIndex: 10, type: "VACCIN" as const, days: 16, notes: "Rappel annuel" }
+  ].forEach(({ catIndex, type, days, notes }) => service.createTask({ catId: dataset.cats[catIndex].id, type, dueDate: dateAfterDays(days), notes }));
 
   dataset.adoptions.filter((adoption) => adoption.status === "ACTIVE").slice(0, 8).forEach((adoption, index) => dataset.followUps.push({
     id: crypto.randomUUID(), catId: adoption.catId, adoptionId: adoption.id,

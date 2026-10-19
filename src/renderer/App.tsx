@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import type {
   Adoption, AdoptionDaySuggestionGroup, AdoptionEligibility, AppSnapshot, CatProfile,
   CatStatus, HealthExposure, LegacyImportPreview, SterilizationStatus
@@ -6,7 +6,7 @@ import type {
 import { searchAdoptionCats } from "./catSearch";
 import { buildCatTable, type CatSortField, type SortDirection } from "./catTable";
 
-type Page = "dashboard" | "cats" | "families" | "adoptions" | "adoptionDays" | "refuge" | "import";
+type Page = "dashboard" | "cats" | "families" | "adoptions" | "adoptionDays" | "refuge" | "import" | "care" | "email" | "sponsorships";
 type Notice = { kind: "success" | "error"; text: string };
 interface PageProps { snapshot: AppSnapshot; run: (operation: () => Promise<AppSnapshot>, message: string) => Promise<void>; }
 
@@ -17,7 +17,8 @@ const PAGE_META: Array<{ id: Page; label: string; icon: string }> = [
   { id: "families", label: "Familles d'accueil", icon: "⌁" },
   { id: "adoptions", label: "Adoptions", icon: "♡" },
   { id: "adoptionDays", label: "Journées adoption", icon: "☀" },
-  { id: "import", label: "Importer", icon: "⇥" }
+  { id: "sponsorships", label: "Parrainages", icon: "💰" }, { id: "care", label: "Rappels", icon: "◷" },
+  { id: "email", label: "E-mails", icon: "✉" }, { id: "import", label: "Importer", icon: "⇥" }
 ];
 
 const STATUS_LABEL: Record<CatStatus, string> = {
@@ -49,12 +50,14 @@ function catWarnings(cat: AppSnapshot["cats"][number]): string[] {
   if (cat.adoptionEligibility !== "ELIGIBLE") warnings.push(cat.adoptionBlockedReason || "Adoption non autorisée");
   return warnings;
 }
+function careTypeLabel(type: string): string { if (type === "VERMIFUGE") return "Vermifuge"; if (type === "VACCIN" || type === "VACCINATION") return "Vaccin / injection"; if (type.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("sterilis") || ["neutering", "spay", "castration"].some((word) => type.toLowerCase().includes(word))) return "Stérilisation"; return type; }
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
   const [page, setPage] = useState<Page>("dashboard");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
+  const [healthCatId, setHealthCatId] = useState<string | null>(null);
   const [switchingDemo, setSwitchingDemo] = useState(false);
   useEffect(() => { window.catApp.bootstrap().then(setSnapshot).catch((error) => setNotice({ kind: "error", text: errorMessage(error) })); }, []);
   useEffect(() => {
@@ -97,7 +100,7 @@ export function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">C</div><div><strong>Cha'Mania</strong><span>Registre félin</span></div></div>
       {snapshot.demoMode && <div className="demo-badge">Mode démo · {snapshot.cats.length} chats</div>}
-      <nav>{PAGE_META.map((item) => <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "cats" && <small>{snapshot.cats.length}</small>}</button>)}</nav>
+      <nav>{PAGE_META.map((item) => <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => { setHealthCatId(null); setPage(item.id); }}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "cats" && <small>{snapshot.cats.length}</small>}</button>)}</nav>
       <div className="dataset-card"><span>Jeu de données</span><strong title={snapshot.datasetPath}>{snapshot.name}</strong><button disabled={snapshot.demoMode} onClick={async () => { const selected = await window.catApp.chooseDatasetDirectory(); if (selected) { setSnapshot(selected); setNotice({ kind: "success", text: "Jeu de données ouvert." }); } }}>{snapshot.demoMode ? "Dossier de démonstration isolé" : "Changer de dossier"}</button></div>
       <button className={`demo-switch ${snapshot.demoMode ? "active" : ""}`} disabled={switchingDemo} onClick={() => void switchDemoMode()}><span>{snapshot.demoMode ? "←" : "✦"}</span>{switchingDemo ? "Changement en cours…" : snapshot.demoMode ? "Quitter le mode démo" : "Essayer le mode démo"}</button>
     </aside>
@@ -111,8 +114,11 @@ export function App() {
         {page === "adoptionDays" && <AdoptionDaysPage snapshot={snapshot} run={run} setNotice={setNotice} />}
         {page === "refuge" && <RefugePage snapshot={snapshot} run={run} />}
         {page === "import" && <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />}
+        {page === "care" && (healthCatId ? <HealthIssuePage catId={healthCatId} snapshot={snapshot} run={run} setSnapshot={setSnapshot} setNotice={setNotice} back={() => setHealthCatId(null)} /> : <CarePage snapshot={snapshot} run={run} />)}
+        {page === "email" && <EmailPage snapshot={snapshot} />}
+        {page === "sponsorships" && <SponsorshipsPage snapshot={snapshot} run={run} />}
       </div>
-    </main>{snapshot.showDemoWelcome && <div className="demo-welcome-backdrop"><section className="demo-welcome" role="dialog" aria-modal="true" aria-labelledby="demo-welcome-title"><div className="demo-welcome-mark">C</div><span className="eyebrow">Première visite</span><h2 id="demo-welcome-title">Bienvenue dans le mode démo</h2><p>Explorez l'application avec 64 chats et des données entièrement fictives. Votre vrai registre reste séparé et ne sera jamais modifié pendant la démonstration.</p><ul><li>Testez les accueils, adoptions et journées d'adoption.</li><li>Les changements restent dans le dossier de démonstration.</li><li>Le mode démo restera actif entre les lancements.</li></ul><div className="demo-welcome-actions"><button className="button primary" disabled={switchingDemo} onClick={() => void dismissDemoWelcome()}>Explorer la démonstration</button><button className="button secondary" disabled={switchingDemo} onClick={() => void switchDemoMode()}>Utiliser mon registre</button></div><small>Vous pourrez changer de mode à tout moment avec le bouton en bas à gauche.</small></section></div>}{selectedCatId && <CatDetail catId={selectedCatId} snapshot={snapshot} close={() => setSelectedCatId(null)} run={run} setSnapshot={setSnapshot} setNotice={setNotice}/>}
+    </main>{snapshot.showDemoWelcome && <div className="demo-welcome-backdrop"><section className="demo-welcome" role="dialog" aria-modal="true" aria-labelledby="demo-welcome-title"><div className="demo-welcome-mark">C</div><span className="eyebrow">Première visite</span><h2 id="demo-welcome-title">Bienvenue dans le mode démo</h2><p>Explorez l'application avec 64 chats et des données entièrement fictives. Votre vrai registre reste séparé et ne sera jamais modifié pendant la démonstration.</p><ul><li>Testez les accueils, adoptions et journées d'adoption.</li><li>Les changements restent dans le dossier de démonstration.</li><li>Le mode démo restera actif entre les lancements.</li></ul><div className="demo-welcome-actions"><button className="button primary" disabled={switchingDemo} onClick={() => void dismissDemoWelcome()}>Explorer la démonstration</button><button className="button secondary" disabled={switchingDemo} onClick={() => void switchDemoMode()}>Utiliser mon registre</button></div><small>Vous pourrez changer de mode à tout moment avec le bouton en bas à gauche.</small></section></div>}{selectedCatId && <CatDetail key={selectedCatId} catId={selectedCatId} snapshot={snapshot} close={() => setSelectedCatId(null)} goHealth={() => { setHealthCatId(selectedCatId); setSelectedCatId(null); setPage("care"); }} run={run} setSnapshot={setSnapshot} setNotice={setNotice}/>}
   </div>;
 }
 
@@ -122,15 +128,75 @@ function Dashboard({ snapshot, navigate, run }: { snapshot: AppSnapshot; navigat
   const familyCapacity = snapshot.families.map((family) => ({ family, cats: snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id), remaining: Math.max(0, family.maxCapacity - snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id).length) })).filter((group) => group.remaining > 0).sort((a, b) => b.remaining - a.remaining);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const openAlerts = snapshot.healthAlerts.filter((alert) => alert.status === "OPEN");
+  const associationCatIds = new Set(snapshot.catViews.filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status)).map((cat) => cat.id));
+  const upcomingCare = snapshot.tasks.filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId)).sort((a,b) => a.dueDate.localeCompare(b.dueDate));
   return <div className="page-stack">
     <section className="hero-panel"><div><span className="eyebrow light">Aujourd'hui</span><h2>Chaque parcours, au bon endroit.</h2></div><div className="hero-actions"><button className="button light" onClick={() => navigate("cats")}>+ Enregistrer un chat</button><button className="button ghost-light" onClick={() => navigate("families")}>+ Ajouter une famille</button><button className="button ghost-light" onClick={() => navigate("adoptions")}>Préparer une adoption</button><button className="button ghost-light" onClick={() => navigate("adoptionDays")}>Préparer une journée</button></div></section>
     <section className="metrics"><Metric label="Chats enregistrés" value={snapshot.cats.length} tone="ink"/><Metric label="En famille" value={count("FOSTERED")} tone="amber"/><Metric label="Au refuge" value={count("AT_REFUGE")} tone="sage"/><Metric label="Adoptés" value={count("ADOPTED")} tone="rose"/></section>
     <Panel title="Places restantes" action={<button className="text-button" onClick={() => navigate("families")}>Gérer les accueils →</button>}>
       <div className="location-grid">{familyCapacity.slice(0, 6).map(({ family, cats, remaining }) => <article className="location-card" key={family.id}><div><FamilyLink family={family}/><span>{remaining} place{remaining > 1 ? "s" : ""}</span></div><p>{cats.length}/{family.maxCapacity} occupées</p></article>)}{!familyCapacity.length && <Empty text="Aucune place disponible actuellement."/>}</div>
     </Panel>
-    <div className="dashboard-grid"><Panel title="Mouvements récents">{latestEvents.length ? <div className="timeline">{latestEvents.map((event) => { const cat = snapshot.cats.find((candidate) => candidate.id === event.catId); return <div className="timeline-row" key={event.id}><span className="timeline-dot"/><div>{cat ? <CatIdentity cat={cat}/> : <strong>Chat inconnu</strong>}<span>{eventLabel(event.type)}{event.notes ? ` · ${event.notes}` : ""}</span></div><time>{formatDate(event.date)}</time></div>; })}</div> : <Empty text="Aucun mouvement enregistré."/>}</Panel>
+    <div className="dashboard-grid"><Panel title="Rappels à venir" action={<button className="text-button" onClick={() => navigate("care")}>Voir les rappels →</button>}><div className="timeline">{upcomingCare.slice(0,5).map((task) => <div className="timeline-row" key={task.id}><span className="timeline-dot"/><div><CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!}/><span>{careTypeLabel(task.type)}{task.notes ? ` · ${task.notes}` : ""}</span></div><time>{formatDate(task.dueDate)}</time></div>)}{!upcomingCare.length && <Empty text="Aucun rappel à venir."/>}</div></Panel><Panel title="Mouvements récents">{latestEvents.length ? <div className="timeline">{latestEvents.map((event) => { const cat = snapshot.cats.find((candidate) => candidate.id === event.catId); return <div className="timeline-row" key={event.id}><span className="timeline-dot"/><div>{cat ? <CatIdentity cat={cat}/> : <strong>Chat inconnu</strong>}<span>{eventLabel(event.type, event.label)}{event.notes ? ` · ${event.notes}` : ""}</span></div><time>{formatDate(event.date)}</time></div>; })}</div> : <Empty text="Aucun mouvement enregistré."/>}</Panel>
       <Panel title="Alertes" action={<button className="text-button" onClick={() => setAlertsOpen(!alertsOpen)}>{alertsOpen ? "Réduire" : "Ouvrir le menu →"}</button>}><button className="alert-summary" onClick={() => setAlertsOpen(!alertsOpen)}><strong>{openAlerts.length}</strong><span>alertes sanitaires actives</span></button>{alertsOpen && <div className="alert-menu">{openAlerts.map((alert) => { const cat = snapshot.cats.find((candidate) => candidate.id === alert.catId)!; return <article key={alert.id}><CatIdentity cat={cat}/><span>{alert.disease} · depuis le {formatDate(alert.declaredAt)}</span><button className="button tiny" onClick={() => void run(() => window.catApp.resolveHealthAlert({ alertId: alert.id, resolvedAt: localToday() }), "Alerte sanitaire terminée.")}>Terminer l'alerte</button></article>; })}{!openAlerts.length && <Empty text="Aucune alerte sanitaire active."/>}</div>}</Panel></div>
   </div>;
+}
+
+function CarePage({ snapshot, run }: PageProps) {
+  const associationCatIds = new Set(snapshot.catViews.filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status)).map((cat) => cat.id));
+  const tasks = snapshot.tasks.filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId)).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const overdue = tasks.filter((task) => task.dueDate <= localToday()).length;
+  return <div className="page-stack"><div className="section-heading"><p>Les prochaines actions à faire pour les chats.</p><span className="care-count">{tasks.length} rappel(s) · {overdue} à faire ou en retard</span></div><Panel title={`Rappels à faire · ${tasks.length}`}><div className="table-wrap"><table className="adoption-table care-table"><thead><tr><th>Échéance</th><th>Chat</th><th>Rappel</th><th>Détail</th><th></th></tr></thead><tbody>{tasks.map((task) => { const due = task.dueDate <= localToday(); return <tr key={task.id}><td><span className={`care-status ${due ? "overdue" : "open"}`}>{due ? (task.dueDate < localToday() ? "En retard" : "À faire aujourd’hui") : "À venir"}</span><span className="reminder-date">{formatDate(task.dueDate)}</span></td><td><CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!}/></td><td><strong>{careTypeLabel(task.type)}</strong></td><td>{task.notes || "—"}</td><td><CareTaskAction task={task} run={run}/></td></tr>; })}</tbody></table></div>{!tasks.length && <Empty text="Aucun rappel en attente."/>}</Panel></div>;
+}
+
+function CareTaskAction({ task, run }: { task: AppSnapshot["tasks"][number]; run: PageProps["run"] }) {
+  const [editing, setEditing] = useState(false);
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const nextDueDate = String(data.get("nextDueDate")); void run(() => window.catApp.completeTask({ id: task.id, completedAt: String(data.get("completedAt")), nextDueDate: nextDueDate || undefined }), "Soin enregistré dans l'historique.").then(() => setEditing(false)); };
+  if (!editing) return <button className="button tiny care-done-button" onClick={() => setEditing(true)}>Enregistrer le soin</button>;
+  return <form className="care-complete-form" onSubmit={submit}><label>Fait le<input name="completedAt" type="date" defaultValue={localToday()} required/></label><label>Prochaine date<input name="nextDueDate" type="date"/></label><button className="button tiny care-done-button">Valider</button><button type="button" className="text-button" onClick={() => setEditing(false)}>Annuler</button></form>;
+}
+
+function EmailPage({ snapshot }: { snapshot: AppSnapshot }) {
+  const [kind, setKind] = useState("sterilisation"); const [catId, setCatId] = useState(""); const [subject, setSubject] = useState(""); const [body, setBody] = useState("");
+  const templates: Record<string, { subject: string; body: string }> = { sterilisation: { subject: "Rappel de stérilisation", body: "Bonjour,\\n\\nNous vous rappelons que la stérilisation de {chat} est à prévoir. Merci de nous tenir informés de la date du rendez-vous.\\n\\nL'association Cha'Mania" }, icad: { subject: "Informations concernant ICAD", body: "Bonjour,\\n\\nNous vous contactons au sujet de l'identification ICAD de {chat}.\\n\\nL'association Cha'Mania" }, association: { subject: "Les nouvelles de l'association", body: "Bonjour,\\n\\nVoici les dernières nouvelles de l'association Cha'Mania…" } };
+  const chosen = snapshot.cats.find((cat) => cat.id === catId); const fill = (value: string) => value.replaceAll("{chat}", chosen?.name ?? "votre chat");
+  const selectTemplate = (value: string) => { setKind(value); setSubject(templates[value].subject); setBody(templates[value].body); };
+  useEffect(() => { selectTemplate(kind); }, [catId]);
+  const recipients = kind === "association" ? [...snapshot.families, ...snapshot.adopters].map((contact) => contact.email).filter(Boolean).join(",") : chosen ? [snapshot.families.find((family) => family.id === snapshot.catViews.find((cat) => cat.id === chosen.id)?.currentFamilyId)?.email, ...snapshot.adopters.filter((a) => snapshot.adoptions.some((ad) => ad.catId === chosen.id && ad.adopterId === a.id)).map((a) => a.email)].filter((email): email is string => Boolean(email)).join(",") : "";
+  const mailto = `mailto:${recipients}?subject=${encodeURIComponent(fill(subject))}&body=${encodeURIComponent(fill(body))}`;
+  return <div className="page-stack"><div className="section-heading"><p>Rappels de stérilisation, messages ICAD et newsletter de l'association</p></div><Panel title="Préparer un e-mail"><div className="form-grid"><Field label="Type de message"><select value={kind} onChange={(e) => selectTemplate(e.target.value)}><option value="sterilisation">Rappel stérilisation</option><option value="icad">Message ICAD</option><option value="association">Newsletter association</option></select></Field><Field label="Chat (si concerné)"><select value={catId} onChange={(e) => setCatId(e.target.value)}><option value="">Choisir</option>{snapshot.cats.map((cat) => <option value={cat.id} key={cat.id}>{cat.name}</option>)}</select></Field><Field label="Objet"><input value={fill(subject)} onChange={(e) => setSubject(e.target.value)}/></Field><Field label="Destinataires"><input readOnly value={recipients} placeholder="À saisir dans votre logiciel de messagerie"/></Field><Field label="Message" wide><textarea rows={10} value={fill(body)} onChange={(e) => setBody(e.target.value)}/></Field></div><p>Les messages s'ouvrent dans votre logiciel de messagerie. Relisez le texte et ajoutez les destinataires avant l'envoi.</p><a className="button primary" href={mailto}>Ouvrir l'e-mail</a></Panel></div>;
+}
+
+function SponsorshipsPage({ snapshot, run }: PageProps) {
+  const [showForm, setShowForm] = useState(false);
+  const [contactRef, setContactRef] = useState("manual");
+  const [confirmStopId, setConfirmStopId] = useState<string | null>(null);
+  const contacts = [
+    ...snapshot.families.map((person) => ({ ref: `family:${person.id}`, label: `Famille · ${person.label}`, firstName: person.firstName, lastName: person.lastName, email: person.email })),
+    ...snapshot.adopters.map((person) => ({ ref: `adopter:${person.id}`, label: `Adoptant · ${person.label}`, firstName: person.firstName, lastName: person.lastName, email: person.email }))
+  ];
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const existing = contacts.find((contact) => contact.ref === contactRef);
+    void run(() => window.catApp.createSponsorship({ catId: String(data.get("catId")), firstName: existing?.firstName ?? String(data.get("firstName")), lastName: existing?.lastName ?? String(data.get("lastName")), email: existing?.email ?? String(data.get("email")), monthlyAmount: Number(data.get("monthlyAmount")), startDate: String(data.get("startDate")) }), "Parrainage enregistré.").then(() => setShowForm(false));
+  };
+  const active = snapshot.sponsorships.filter((item) => !item.endDate);
+  const total = active.reduce((sum, item) => sum + item.monthlyAmount, 0);
+  const stop = (item: AppSnapshot["sponsorships"][number]) => void run(() => window.catApp.updateSponsorship({ ...item, endDate: localToday() }), "Parrainage arrêté.").then(() => setConfirmStopId(null));
+  return <div className="page-stack"><div className="section-heading"><div><p>{active.length} parrainages actifs · {total.toFixed(2)} € par mois</p><small className="sponsorship-subtitle">Suivi des parrains et des chats parrainés</small></div><button className="button primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Fermer" : "+ Nouveau parrainage"}</button></div>{showForm && <Panel title="Ajouter un parrainage"><form className="form-grid" onSubmit={submit}><Field label="Chat *"><select name="catId" required><option value="">Choisir</option>{snapshot.cats.filter((cat) => snapshot.catViews.find((view) => view.id === cat.id)?.status !== "DECEASED").map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}</select></Field><Field label="Montant mensuel (€) *"><input type="number" step="0.01" min="0.01" name="monthlyAmount" required/></Field><Field label="Parrain ou marraine déjà enregistré(e)"><select name="contactRef" value={contactRef} onChange={(event) => setContactRef(event.target.value)}><option value="manual">Saisir une nouvelle personne</option>{contacts.map((contact) => <option key={contact.ref} value={contact.ref}>{contact.label}</option>)}</select></Field>{contactRef === "manual" && <><Field label="Prénom *"><input name="firstName" required/></Field><Field label="Nom *"><input name="lastName" required/></Field><Field label="E-mail"><input type="email" name="email"/></Field></>}<Field label="Début *"><input type="date" name="startDate" defaultValue={localToday()} required/></Field><div className="form-actions"><button className="button primary">Enregistrer le parrainage</button></div></form></Panel>}<Panel title={`Parrainages · ${snapshot.sponsorships.length}`}><div className="table-wrap"><table className="adoption-table sponsorship-table"><thead><tr><th>Chat</th><th>Parrain / marraine</th><th>Contact</th><th>Mensuel</th><th>Période</th><th>Action</th></tr></thead><tbody>{snapshot.sponsorships.map((item) => { const cat = snapshot.cats.find((candidate) => candidate.id === item.catId); return <tr key={item.id}><td>{cat ? <CatIdentity cat={cat}/> : "Chat inconnu"}</td><td><strong>{item.firstName} {item.lastName}</strong></td><td>{item.email || "—"}</td><td>{item.monthlyAmount.toFixed(2)} €</td><td>{formatDate(item.startDate)}{item.endDate ? ` → ${formatDate(item.endDate)}` : " · actif"}</td><td>{item.endDate ? <span className="care-status">Arrêté</span> : confirmStopId === item.id ? <div className="sponsorship-stop-confirm"><button className="button tiny" onClick={() => stop(item)}>Confirmer</button><button className="text-button" onClick={() => setConfirmStopId(null)}>Annuler</button></div> : <button className="button tiny sponsorship-stop" onClick={() => setConfirmStopId(item.id)}>Arrêter le parrainage</button>}</td></tr>; })}</tbody></table></div>{!snapshot.sponsorships.length && <Empty text="Aucun parrainage enregistré."/>}</Panel></div>;
+}
+
+function CatSponsorNews({ cat, snapshot }: { cat: AppSnapshot["cats"][number]; snapshot: AppSnapshot }) {
+  const sponsors = snapshot.sponsorships.filter((s) => s.catId === cat.id && !s.endDate);
+  const recipients = sponsors.map((s) => s.email).filter(Boolean).join(",");
+  const [subject, setSubject] = useState(`Des nouvelles de ${cat.name}`);
+  const [body, setBody] = useState("");
+  const [photoLinks, setPhotoLinks] = useState(cat.photo ?? "");
+  useEffect(() => setPhotoLinks(cat.photo ?? ""), [cat.photo]);
+  const photos = photoLinks.split(/\n|,/).map((link) => link.trim()).filter(Boolean).join("\n");
+  const message = `${body}${photos ? `\n\nPhotos de ${cat.name} :\n${photos}` : ""}`;
+  const mailto = `mailto:${recipients}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  return <Panel title="Envoyer des nouvelles aux parrains"><div className="form-grid"><Field label="Parrains actifs"><input readOnly value={recipients} placeholder={sponsors.length ? "Aucune adresse e-mail renseignée" : "Aucun parrainage actif pour ce chat"}/></Field><Field label="Objet"><input value={subject} onChange={(event) => setSubject(event.target.value)}/></Field><Field label="Message" wide><textarea rows={4} value={body} onChange={(event) => setBody(event.target.value)} placeholder={`Partagez les dernières nouvelles de ${cat.name}…`}/></Field><Field label="Liens vers les photos" wide><textarea rows={2} value={photoLinks} onChange={(event) => setPhotoLinks(event.target.value)} placeholder="Un lien par ligne ou ajoutez les photos dans votre e-mail"/></Field></div><p className="panel-intro">Le message s'ouvre dans votre logiciel de messagerie. Vous pourrez joindre des photos avant l'envoi.</p><a className={`button primary ${!recipients ? "disabled-link" : ""}`} aria-disabled={!recipients} href={recipients ? mailto : undefined}>Ouvrir l'e-mail · {sponsors.length} parrain(s)</a></Panel>;
 }
 
 function CatsPage({ snapshot, run }: PageProps) {
@@ -147,22 +213,143 @@ function CatsPage({ snapshot, run }: PageProps) {
     </div>;
 }
 
-function CatDetail({ catId, snapshot, close, run, setSnapshot, setNotice }: PageProps & { catId: string; close: () => void; setSnapshot: (snapshot: AppSnapshot) => void; setNotice: (notice: Notice | null) => void }) {
+function HealthIssuePage({ catId, snapshot, run, setSnapshot, setNotice, back }: PageProps & { catId: string; setSnapshot: (snapshot: AppSnapshot) => void; setNotice: (notice: Notice | null) => void; back: () => void }) {
   const cat = snapshot.catViews.find((candidate) => candidate.id === catId)!;
   const [exposures, setExposures] = useState<HealthExposure[]>([]);
-  const events = snapshot.catEvents.filter((event) => event.catId === catId).map((event) => ({ date: event.date, title: eventLabel(event.type), notes: event.notes }));
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); try { const result = await window.catApp.declareSickness({ catId, disease: String(data.get("disease")), declaredAt: String(data.get("declaredAt")), lookbackDays: Number(data.get("lookbackDays")), notes: String(data.get("notes")) }); setSnapshot(result.snapshot); setExposures(result.exposures); setNotice({ kind: "success", text: `${result.exposures.length} contact(s) potentiel(s) retrouvé(s).` }); } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); } };
+  return <div className="page-stack health-issue-page"><div className="section-heading"><div><p>Suivi sanitaire de {cat.name} et recherche des chats potentiellement exposés.</p></div><button className="button secondary" onClick={back}>← Retour aux rappels</button></div><Panel title={`Déclarer un problème de santé · ${cat.name}`}><form className="form-grid" onSubmit={submit}><Field label="Maladie ou suspicion"><input name="disease" required autoFocus/></Field><Field label="Date"><input name="declaredAt" type="date" required defaultValue={localToday()}/></Field><Field label="Recherche de contacts (jours)"><input name="lookbackDays" type="number" min="0" max="365" defaultValue="14"/></Field><Field label="Notes" wide><input name="notes"/></Field><div className="form-actions"><button className="button primary">Déclarer et rechercher les contacts</button></div></form><p className="panel-intro">La recherche utilise les lieux et périodes de présence enregistrés pour ce chat.</p></Panel>{exposures.length > 0 && <Panel title="Chats ayant partagé le même lieu"><div className="exposure-box">{exposures.map((item, index) => <div key={`${item.catId}-${index}`}><b>{snapshot.cats.find((candidate) => candidate.id === item.catId)?.name}</b><span>{item.locationLabel} · {formatDate(item.overlapStart)}–{formatDate(item.overlapEnd)}</span></div>)}</div></Panel>}</div>;
+}
+
+function CatDetail({ catId, snapshot, close, goHealth, run, setSnapshot, setNotice }: PageProps & { catId: string; close: () => void; goHealth: () => void; setSnapshot: (snapshot: AppSnapshot) => void; setNotice: (notice: Notice | null) => void }) {
+  const cat = snapshot.catViews.find((candidate) => candidate.id === catId)!;
+  const [photo, setPhoto] = useState(cat.photo ?? "");
+  const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
+  const [cropX, setCropX] = useState(50);
+  const [cropY, setCropY] = useState(50);
+  const [cropScale, setCropScale] = useState(75);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [showHistoryForm, setShowHistoryForm] = useState(false);
+  const [showNews, setShowNews] = useState(false);
+  const [showActionMenu, setShowActionMenu] = useState(false);
+  const [historyWidth, setHistoryWidth] = useState(33);
+  const events = snapshot.catEvents.filter((event) => event.catId === catId && !["ADOPTED", "RETURNED"].includes(event.type)).map((event) => ({ date: event.date, title: event.type === "NOTE_ADDED" ? event.label || "Note de suivi" : eventLabel(event.type), notes: event.notes }));
   const placements = snapshot.fosterPlacements.filter((item) => item.catId === catId).map((item) => ({ date: item.startDate, title: `Accueil · ${snapshot.families.find((family) => family.id === item.familyId)?.label ?? "Famille"}`, notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.overrideReason ? ` · Dérogation: ${item.overrideReason}` : ""}` }));
   const adoptions = snapshot.adoptions.filter((item) => item.catId === catId).map((item) => ({ date: item.adoptionDate, title: `Adoption · ${snapshot.adopters.find((adopter) => adopter.id === item.adopterId)?.label ?? "Adoptant"}`, notes: `${item.status === "ACTIVE" ? "Active" : `Retour le ${formatDate(item.endedAt)}`}${item.partner ? ` · ${item.partner}` : ""}` }));
   const stays = snapshot.refugeStays.filter((item) => item.catId === catId).map((item) => ({ date: item.startDate, title: `Refuge · ${snapshot.refugeZones.find((zone) => zone.id === item.zoneId)?.name ?? "Zone"}`, notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.reason ? ` · ${item.reason}` : ""}` }));
-  const history = [...events, ...placements, ...adoptions, ...stays].sort((a, b) => b.date.localeCompare(a.date));
-  const saveEligibility = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => window.catApp.updateCat({ id: catId, adoptionEligibility: String(data.get("eligibility")) as AdoptionEligibility, adoptionBlockedReason: String(data.get("reason")) }), "Adoptabilité mise à jour."); };
-  const declareSickness = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); try { const result = await window.catApp.declareSickness({ catId, disease: String(data.get("disease")), declaredAt: String(data.get("declaredAt")), lookbackDays: Number(data.get("lookbackDays")), notes: String(data.get("notes")) }); setSnapshot(result.snapshot); setExposures(result.exposures); setNotice({ kind: "success", text: `${result.exposures.length} contact(s) potentiel(s) retrouvé(s).` }); } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); } };
-  return <div className="drawer-backdrop" onMouseDown={close}><aside className="drawer" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" onClick={close}>×</button><div className="detail-title"><div className="table-avatar large">{cat.name.slice(0, 1)}</div><div><span className={`status ${cat.status.toLowerCase()}`}>{STATUS_LABEL[cat.status]}</span><h2>{cat.name}</h2><p>{cat.currentLocationLabel || "Sans lieu actuel"} · {PROFILE_LABEL[cat.profile]}</p></div></div>
-    <div className="detail-facts"><span><small>Naissance</small>{formatDate(cat.birthDate)}</span><span><small>ICAD</small>{cat.identificationNumber || "Non renseigné"}</span><span><small>Santé</small>{cat.healthStatus === "SICK" ? "Malade" : cat.healthStatus === "RECOVERED" ? "Rétabli" : "Sain"}</span></div>
-    <form className="compact-form" onSubmit={saveEligibility}><strong>Adoptabilité</strong><select name="eligibility" defaultValue={cat.adoptionEligibility}><option value="ELIGIBLE">Oui</option><option value="ON_HOLD">Panier retraite</option><option value="INELIGIBLE">Non</option></select><input name="reason" defaultValue={cat.adoptionBlockedReason} placeholder="Note affichée en infobulle"/><button className="button secondary">Mettre à jour</button></form>
-    <form className="compact-form health-form" onSubmit={declareSickness}><strong>Déclarer malade</strong><input name="disease" required placeholder="Maladie ou suspicion"/><input name="declaredAt" type="date" required defaultValue={localToday()}/><label>Recherche sur <input name="lookbackDays" type="number" min="0" max="365" defaultValue="14"/> jours</label><input name="notes" placeholder="Notes"/><button className="button danger">Déclarer et retrouver les contacts</button></form>
-    {exposures.length > 0 && <div className="exposure-box"><strong>Chats ayant partagé le même lieu</strong>{exposures.map((item, index) => <div key={`${item.catId}-${index}`}><b>{snapshot.cats.find((candidate) => candidate.id === item.catId)?.name}</b><span>{item.locationLabel} · {formatDate(item.overlapStart)}–{formatDate(item.overlapEnd)}</span></div>)}</div>}
-    <h3>Historique complet</h3><div className="detail-history">{history.map((item, index) => <div key={`${item.date}-${item.title}-${index}`}><time>{formatDate(item.date)}</time><span/><p><strong>{item.title}</strong><small>{item.notes || "—"}</small></p></div>)}</div></aside></div>;
+  const taskHistory = snapshot.tasks.filter((task) => task.catId === catId && task.status !== "CANCELLED").map((task) => ({ date: task.status === "DONE" ? task.completedAt || task.dueDate : task.dueDate, title: task.status === "DONE" ? `${careTypeLabel(task.type)} · effectué` : careTypeLabel(task.type), notes: task.notes }));
+  const history = [...events, ...placements, ...adoptions, ...stays, ...taskHistory].sort((a, b) => b.date.localeCompare(a.date));
+  const reminderDateFor = (kind: "vaccin" | "vermifuge" | "médicament") => snapshot.tasks.filter((task) => task.catId === catId && task.status === "OPEN" && task.type.toLowerCase().includes(kind)).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.dueDate;
+  const saveCatProfile = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const yesNo = (key: string) => String(data.get(key)) === "unknown" ? null : String(data.get(key)) === "yes"; void cropPhotoToSquare(photo, cropX, cropY, cropScale).then((savedPhoto) => run(() => window.catApp.updateCat({ id: catId, description: String(data.get("description")), photo: savedPhoto, okWithCats: yesNo("cats"), okWithDogs: yesNo("dogs"), okWithChildren: yesNo("children"), medications: String(data.get("medications")), vaccines: String(data.get("vaccines")), deworming: String(data.get("deworming")), adoptionEligibility: String(data.get("eligibility")) as AdoptionEligibility, adoptionBlockedReason: String(data.get("reason")) }), "Fiche du chat mise à jour.")); };
+  const readPhoto = (event: ChangeEvent<HTMLInputElement>) => { const file = event.currentTarget.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) { setNotice({ kind: "error", text: "Choisissez un fichier image." }); return; } if (file.size > 5 * 1024 * 1024) { setNotice({ kind: "error", text: "La photo doit faire moins de 5 Mo." }); return; } const reader = new FileReader(); reader.onload = () => { if (typeof reader.result === "string") { setPendingPhoto(reader.result); setCropX(50); setCropY(50); setCropOpen(true); } }; reader.onerror = () => setNotice({ kind: "error", text: "La photo n'a pas pu être lue." }); reader.readAsDataURL(file); };
+  const recordHistory = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const nextDate = String(data.get("nextDate")); void run(() => window.catApp.recordCatHistory({ catId, date: String(data.get("date")), title: String(data.get("title")), notes: String(data.get("notes")), nextDate: nextDate || undefined }), "Événement ajouté à l'historique.").then(() => (event.currentTarget as HTMLFormElement | null)?.reset()); };
+  const openHealthPage = () => goHealth();
+  return <div className="drawer-backdrop" onMouseDown={close}><aside className="drawer cat-detail-dialog" onMouseDown={(event) => event.stopPropagation()}><header className="cat-detail-header"><div className="detail-title"><div className="table-avatar large cat-detail-avatar">{photo ? <img src={photo} alt={`Photo de ${cat.name}`} style={{ objectPosition: `${cropX}% ${cropY}%` }}/> : cat.name.slice(0, 1)}</div><div><span className={`status ${cat.status.toLowerCase()}`}>{STATUS_LABEL[cat.status]}</span><h2 className="cat-name-icad">{cat.name}{cat.identificationNumber && <>- {cat.identificationNumber}<button type="button" className="copy-icad" title="Copier le numéro ICAD" aria-label="Copier le numéro ICAD" onClick={() => void navigator.clipboard.writeText(cat.identificationNumber)}>▢</button></>}</h2><p>{cat.currentLocationLabel || "Sans lieu actuel"} · {PROFILE_LABEL[cat.profile]}</p></div></div><div className="detail-header-actions"><button className="button secondary" onClick={() => setShowHistoryForm(!showHistoryForm)}>{showHistoryForm ? "Fermer l’historique" : "+ Historique"}</button><button className="button primary" onClick={() => setShowNews(!showNews)}>{showNews ? "Fermer les nouvelles" : "✉ Donner des nouvelles"}</button><div className="cat-action-menu-wrap"><button className="button secondary" aria-expanded={showActionMenu} onClick={() => setShowActionMenu(!showActionMenu)}>Actions ▾</button>{showActionMenu && <div className="cat-action-menu"><button onClick={() => { setShowActionMenu(false); openHealthPage(); }}>Déclarer un problème de santé</button>{cat.status !== "DECEASED" && <CatDeathAction catId={catId} catName={cat.name} setSnapshot={setSnapshot} onStart={() => setShowActionMenu(false)}/>}</div>}</div><button className="drawer-close" onClick={close} aria-label="Fermer">×</button></div></header>
+    <p className="cat-birth-date">Né(e) le {formatDate(cat.birthDate)}</p>
+    <div className="cat-detail-columns" style={{ gridTemplateColumns: `minmax(0, ${100 - historyWidth}fr) 8px minmax(0, ${historyWidth}fr)` }}><div className="cat-detail-main">
+    <Panel title="Profil et besoins"><form className="form-grid cat-detail-form" onSubmit={saveCatProfile}><Field label="Description" wide><textarea name="description" rows={2} defaultValue={cat.description} placeholder="Caractère, habitudes, conseils"/></Field><Field label="Photo depuis votre ordinateur" wide><input type="file" accept="image/*" onChange={readPhoto}/>{photo && <button type="button" className="button secondary crop-open-button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setCropOpen(true); }}>Recadrer la photo</button>}</Field><Field label="Adoptabilité"><select name="eligibility" defaultValue={cat.adoptionEligibility}><option value="ELIGIBLE">Adoptable</option><option value="ON_HOLD">En attente</option><option value="INELIGIBLE">Non adoptable</option></select></Field><Field label="Motif"><input name="reason" defaultValue={cat.adoptionBlockedReason} placeholder="Motif si nécessaire"/></Field>{([["cats","Avec les chats",cat.okWithCats],["dogs","Avec les chiens",cat.okWithDogs],["children","Avec les enfants",cat.okWithChildren]] as const).map(([key,label,value]) => <CompatibilityChoices key={key} name={key} label={label} value={value}/>)}<input type="hidden" name="medications" value={cat.medications || ""}/><input type="hidden" name="vaccines" value={cat.vaccines || ""}/><input type="hidden" name="deworming" value={cat.deworming || ""}/><div className="form-actions"><button className="button primary">Enregistrer la fiche</button></div></form></Panel><Panel title="Santé et soins" action={<HealthAction catId={catId} status={cat.healthStatus} run={run}/> }><div className="health-care-grid"><TreatmentAction label="Médicaments" field="medications" value={cat.medications || ""} schedule={cat.medicationSchedule || ""} endDate={cat.medicationEndDate || ""} reminderDate={reminderDateFor("médicament")} catId={catId} setSnapshot={setSnapshot}/><TreatmentAction label="Vaccins" field="vaccines" value={cat.vaccines || ""} reminderDate={reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")} catId={catId} setSnapshot={setSnapshot}/><TreatmentAction label="Vermifuge" field="deworming" value={cat.deworming || ""} reminderDate={reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")} catId={catId} setSnapshot={setSnapshot}/></div></Panel>{showNews && <CatSponsorNews key={cat.id} cat={cat} snapshot={snapshot}/>}
+    {showHistoryForm && <Panel title="Ajouter à l'historique"><form className="form-grid" onSubmit={recordHistory}><Field label="Date"><input name="date" type="date" defaultValue={localToday()} required/></Field><Field label="Événement / action"><input name="title" required placeholder="Visite vétérinaire, comportement…"/></Field><Field label="Prochaine échéance (facultatif)"><input name="nextDate" type="date"/></Field><Field label="Notes" wide><textarea name="notes" rows={2} placeholder="Ce qui s'est passé, résultat, détails utiles…"/></Field><div className="form-actions"><button className="button secondary">Ajouter à l'historique</button></div></form><p className="panel-intro">Une prochaine échéance créera aussi un rappel dans l'historique global.</p></Panel>}
+    </div><div className="column-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionner l’historique" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.buttons !== 1) return; const bounds = event.currentTarget.parentElement!.getBoundingClientRect(); setHistoryWidth(Math.max(25, Math.min(50, Math.round((bounds.right - event.clientX) / bounds.width * 100)))); }}/><aside className="cat-history-sidebar"><div className="cat-history-content"><Panel title="Historique du chat"><div className="detail-history">{history.map((item, index) => <div key={`${item.date}-${item.title}-${index}`}><time>{formatDate(item.date)}</time><span/><p><strong>{item.title}</strong><small>{item.notes || "—"}</small></p></div>)}</div></Panel></div></aside></div>{cropOpen && <PhotoCropDialog photo={pendingPhoto ?? photo} initialX={cropX} initialY={cropY} initialScale={cropScale} cancel={() => { setCropOpen(false); setPendingPhoto(null); }} apply={(x, y, scale) => { if (pendingPhoto) setPhoto(pendingPhoto); setPendingPhoto(null); setCropX(x); setCropY(y); setCropScale(scale); setCropOpen(false); }}/>}</aside></div>;
+}
+
+function dateFromHealthMessage(value: string): string | undefined {
+  if (!/(rappel|prochain|prévu|prévue|renouveler|à faire)/i.test(value)) return undefined;
+  const match = value.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
+  if (!match) return undefined;
+  return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+
+function CatDeathAction({ catId, catName, setSnapshot, onStart }: { catId: string; catName: string; setSnapshot: (snapshot: AppSnapshot) => void; onStart?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    try {
+      const snapshot = await window.catApp.declareCatDeceased({ catId, date: String(data.get("date")), notes: String(data.get("notes")) });
+      setSnapshot(snapshot);
+      setOpen(false);
+      onStart?.();
+    } catch (cause) { setError(errorMessage(cause)); }
+  };
+  return <><button className="cat-action-menu-item danger" type="button" onClick={() => { setError(""); setOpen(true); }}>Déclarer le décès</button>{open && <div className="small-action-backdrop" onMouseDown={() => { setOpen(false); onStart?.(); }}><section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}><h2>Déclarer le décès de {catName}</h2><p>Les parrainages actifs seront arrêtés à cette date.</p><form onSubmit={(event) => void submit(event)}><label>Date du décès<input type="date" name="date" defaultValue={localToday()} required/></label><label>Note (facultatif)<input name="notes"/></label>{error && <p className="inline-action-error" role="alert">{error}</p>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => { setOpen(false); onStart?.(); }}>Annuler</button><button className="button danger">Confirmer le décès</button></div></form></section></div>}</>;
+}
+
+function TreatmentAction({ label, field, value, schedule = "", endDate = "", reminderDate, catId, setSnapshot }: { label: string; field: "medications" | "vaccines" | "deworming"; value: string; schedule?: string; endDate?: string; reminderDate?: string; catId: string; setSnapshot: (snapshot: AppSnapshot) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(value);
+  const [hours, setHours] = useState(schedule);
+  const [until, setUntil] = useState(endDate);
+  const [confirmDismiss, setConfirmDismiss] = useState(false);
+  const [localError, setLocalError] = useState("");
+  useEffect(() => { setText(value); setHours(schedule); setUntil(endDate); }, [value, schedule, endDate]);
+  const activeMedication = field === "medications" && Boolean(value.trim()) && !/^(aucun|pas de) (médicament|traitement)/i.test(value.trim());
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const date = String(data.get("date") ?? "");
+    const nextDate = String(data.get("nextDate") ?? "");
+    if (nextDate && nextDate < date) { setLocalError("La prochaine date doit être égale ou postérieure à la date de l’action."); return; }
+    setLocalError("");
+    try {
+      const update = field === "medications" ? { medications: text, medicationSchedule: hours, medicationEndDate: until } : { [field]: text };
+      await window.catApp.updateCat({ id: catId, ...update });
+      const snapshot = await window.catApp.recordCatHistory({ catId, date, title: `${label} · ${text || "mise à jour"}`, notes: field === "medications" ? [hours && `Horaires : ${hours}`, until && `Jusqu'au ${formatDate(until)}`].filter(Boolean).join(" · ") || "Suivi de santé" : "Suivi de santé", nextDate: nextDate || undefined });
+      setSnapshot(snapshot);
+      setOpen(false);
+    } catch (error) { setLocalError(errorMessage(error)); }
+  };
+  const dismissMedication = async () => {
+    setLocalError("");
+    try {
+      await window.catApp.updateCat({ id: catId, medications: "", medicationSchedule: "", medicationEndDate: "" });
+      const snapshot = await window.catApp.recordCatHistory({ catId, date: localToday(), title: "Médicament arrêté", notes: `${value} · le traitement n'est plus nécessaire.` });
+      setSnapshot(snapshot);
+      setConfirmDismiss(false);
+    } catch (error) { setLocalError(errorMessage(error)); }
+  };
+  const isDue = Boolean((reminderDate && reminderDate <= localToday()) || (field === "medications" && endDate && endDate <= localToday()));
+  return <><div className="health-care-action"><button type="button" className={`health-care-card ${activeMedication ? "active-medication" : ""} ${isDue ? "due" : ""}`} onClick={() => { setLocalError(""); setOpen(true); }}><strong>{label}</strong><span>{value || (field === "medications" ? "Aucun traitement en cours" : "Aucune information renseignée")}</span>{field === "medications" && activeMedication && <>{schedule && <small>Horaires : {schedule}</small>}{endDate && <small>Fin du traitement : {formatDate(endDate)}</small>}{reminderDate && <small>Prochaine prise : {formatDate(reminderDate)}</small>}</>}{(field === "vaccines" || field === "deworming") && reminderDate && <small>Prochaine date : {formatDate(reminderDate)}</small>}</button>{activeMedication && <button type="button" className="medication-dismiss" aria-label="Arrêter ce médicament" title="Arrêter le médicament" onClick={() => { setLocalError(""); setConfirmDismiss(true); }}>×</button>}</div>{open && <div className="small-action-backdrop" onMouseDown={() => setOpen(false)}><section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}><h2>{label} · suivi de santé</h2><form onSubmit={(event) => void save(event)}><label>{field === "medications" ? "Médicament et dose" : "Message / état"}<input autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder={field === "medications" ? "Ex. antibiotique · 1 comprimé" : "Ajouter le message ou l'état"}/></label>{field === "medications" && <><label>Heures et fréquence<input value={hours} onChange={(event) => setHours(event.target.value)} placeholder="Ex. 08:00 et 20:00"/></label><label>Fin du traitement<input type="date" value={until} onChange={(event) => setUntil(event.target.value)}/></label></>}<label>Date de l’action<input type="date" name="date" defaultValue={localToday()} required/></label><label>{field === "medications" ? "Prochaine prise (facultatif)" : "Prochaine échéance (facultatif)"}<input type="date" name="nextDate" defaultValue={reminderDate}/></label>{localError && <p className="inline-action-error" role="alert">{localError}</p>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Annuler</button><button className="button primary">Enregistrer</button></div></form></section></div>}{confirmDismiss && <div className="small-action-backdrop" onMouseDown={() => setConfirmDismiss(false)}><section className="small-action-panel medication-confirm" onMouseDown={(event) => event.stopPropagation()}><h2>Arrêter le médicament ?</h2><p>Confirmer que « {value} » n’est plus nécessaire ? Le traitement sera retiré de la fiche et cette décision ajoutée à l’historique.</p>{localError && <p className="inline-action-error" role="alert">{localError}</p>}<div className="form-actions"><button className="button secondary" onClick={() => setConfirmDismiss(false)}>Annuler</button><button className="button primary" onClick={() => void dismissMedication()}>Confirmer l’arrêt</button></div></section></div>}</>;
+}
+
+function PhotoCropDialog({ photo, initialX, initialY, initialScale, cancel, apply }: { photo: string; initialX: number; initialY: number; initialScale: number; cancel: () => void; apply: (x: number, y: number, scale: number) => void }) {
+  const [x, setX] = useState(initialX);
+  const [y, setY] = useState(initialY);
+  const [scale, setScale] = useState(initialScale);
+  const move = (event: PointerEvent<HTMLDivElement>) => { if (event.buttons !== 1) return; const bounds = event.currentTarget.getBoundingClientRect(); setX(Math.max(0, Math.min(100, Math.round(((event.clientX - bounds.left) / bounds.width - .2) / .6 * 100)))); setY(Math.max(0, Math.min(100, Math.round(((event.clientY - bounds.top) / bounds.height - .2) / .6 * 100)))); };
+  const circleSize = Math.round(scale * .64);
+  const center = (value: number) => `${circleSize / 2 + value * (100 - circleSize) / 100}%`;
+  return <div className="photo-crop-backdrop" onMouseDown={cancel}><section className="photo-crop-dialog" onMouseDown={(event) => event.stopPropagation()}><h2>Positionner la photo</h2><p>Déplacez le cercle sur la partie de la photo à afficher, puis ajustez sa taille.</p><div className="photo-crop-stage" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); move(event); }} onPointerMove={move}><img src={photo} alt="Photo à recadrer"/><div className="photo-crop-circle" style={{ left: center(x), top: center(y), width: `${circleSize}%` }}/></div><div className="crop-size-control"><span>Taille du cercle</span><button className="button secondary" aria-label="Réduire le cercle" disabled={scale <= 55} onClick={() => setScale(Math.max(55, scale - 5))}>−</button><output>{scale}%</output><button className="button secondary" aria-label="Agrandir le cercle" disabled={scale >= 100} onClick={() => setScale(Math.min(100, scale + 5))}>+</button></div><div className="form-actions"><button className="button secondary" onClick={cancel}>Annuler</button><button className="button primary" onClick={() => apply(x, y, scale)}>OK</button></div></section></div>;
+}
+
+function HealthAction({ catId, status, run }: { catId: string; status: "HEALTHY" | "SICK" | "RECOVERED"; run: PageProps["run"] }) {
+  const [open, setOpen] = useState(false);
+  const label = status === "SICK" ? "Malade" : status === "RECOVERED" ? "Rétabli" : "Sain";
+  const update = (healthStatus: "HEALTHY" | "SICK" | "RECOVERED") => { void run(() => window.catApp.updateCat({ id: catId, healthStatus }), "État de santé mis à jour.").then(() => setOpen(false)); };
+  return <span className="health-fact-wrap"><button type="button" className="health-fact" aria-expanded={open} onClick={() => setOpen(!open)}><span>État de santé</span><strong>{label} ▾</strong></button>{open && <div className="health-action-popover"><strong>État de santé</strong><button onClick={() => update("HEALTHY")}>Marquer sain</button><button onClick={() => update("RECOVERED")}>Marquer rétabli</button><button className="health-popover-close" onClick={() => setOpen(false)}>Fermer</button></div>}</span>;
+}
+
+async function cropPhotoToSquare(photo: string, x: number, y: number, scale = 75): Promise<string> {
+  if (!photo.startsWith("data:image/")) return photo;
+  const image = new Image();
+  image.src = photo;
+  await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("La photo n'a pas pu être chargée.")); });
+  const side = Math.min(image.naturalWidth, image.naturalHeight) * scale / 100;
+  const sourceX = (image.naturalWidth - side) * x / 100;
+  const sourceY = (image.naturalHeight - side) * y / 100;
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext("2d");
+  if (!context) return photo;
+  context.drawImage(image, sourceX, sourceY, side, side, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", .88);
+}
+
+function CompatibilityChoices({ name, label, value }: { name: string; label: string; value: boolean | null | undefined }) {
+  const [choice, setChoice] = useState(value == null ? "unknown" : value ? "yes" : "no");
+  const states = [{ value: "yes", label: "✅ Oui" }, { value: "no", label: "❌ Non" }, { value: "unknown", label: "🤔 À tester" }];
+  const current = states.findIndex((state) => state.value === choice);
+  return <div className="field compatibility-field"><span>{label}</span><button type="button" className={`compatibility-cycle ${choice}`} aria-label={`${label} : ${states[current].label}. Cliquer pour changer`} onClick={() => setChoice(states[(current + 1) % states.length].value)}>{states[current].label} <small>↻</small></button><input type="hidden" name={name} value={choice}/></div>;
 }
 
 function CatForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
@@ -293,7 +480,7 @@ function ImportPage({ snapshot, setSnapshot, setNotice }: { snapshot: AppSnapsho
   return <div className="page-stack"><section className="import-intro"><div className="import-icon">CSV</div><div><h2>Importer les anciennes adoptions</h2><p>Les contacts du fichier deviennent des adoptants définitifs, séparés des familles d'accueil.</p></div><div className="import-actions"><button className="button primary" disabled={busy} onClick={() => void load()}>Choisir un CSV</button></div></section>{preview && <><section className="import-stats"><Metric label="Lignes" value={preview.rows.length} tone="ink"/><Metric label="Importables" value={preview.rows.filter((row) => row.importable).length} tone="sage"/><Metric label="Erreurs" value={preview.errorCount} tone="rose"/><Metric label="Avertissements" value={preview.warningCount} tone="amber"/></section><Panel title="Diagnostic" action={<button className="button primary" disabled={busy || !preview.rows.some((row) => row.importable)} onClick={() => void commit()}>Importer</button>}><p className="source-path">{preview.sourcePath}</p><div className="issue-list">{issues.slice(0, 100).map((issue, index) => <div className={`issue ${issue.severity}`} key={`${issue.rowNumber}-${issue.field}-${index}`}><span>{issue.severity === "error" ? "!" : "i"}</span><strong>Ligne {issue.rowNumber}</strong><code>{issue.field}</code><p>{issue.message}</p></div>)}{!issues.length && <Empty text="Aucun problème détecté."/>}</div></Panel></>}</div>;
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone: string }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><i/></article>; }
+function Metric({ label, value, tone }: { label: string; value: number | string; tone: string }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><i/></article>; }
 function openCat(catId: string) { window.dispatchEvent(new CustomEvent("cat:open", { detail: catId })); }
 function openFamily(familyId: string) { window.dispatchEvent(new CustomEvent("family:open", { detail: familyId })); }
 function CatIdentity({ cat }: { cat: Pick<AppSnapshot["cats"][number], "id" | "name"> }) { const activate = (event: { stopPropagation(): void; preventDefault(): void }) => { event.stopPropagation(); event.preventDefault(); openCat(cat.id); }; return <span className="cat-identity cat-link" role="button" tabIndex={0} onClick={activate} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") activate(event); }}><strong>{cat.name}</strong></span>; }
@@ -304,4 +491,4 @@ function Adoptability({ cat }: { cat: Pick<AppSnapshot["cats"][number], "adoptio
 function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) { return <section className="panel"><div className="panel-heading"><h2>{title}</h2>{action}</div>{children}</section>; }
 function Field({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) { return <label className={`field ${wide ? "wide" : ""}`}><span>{label}</span>{children}</label>; }
 function Empty({ text }: { text: string }) { return <div className="empty"><span>◇</span><p>{text}</p></div>; }
-function eventLabel(type: string): string { return ({ REGISTERED: "Enregistré", PLACED_IN_FOSTER: "Placé en famille d'accueil", FOSTER_ENDED: "Accueil terminé", SENT_TO_REFUGE: "Envoyé au refuge", REFUGE_ZONE_CHANGED: "Zone du refuge changée", LEFT_REFUGE: "Sortie du refuge", ADOPTED: "Adopté", RETURNED: "Retour d'adoption", LOST: "Déclaré perdu", DECEASED: "Déclaré décédé", TRANSFERRED: "Transféré", DECLARED_SICK: "Déclaré malade", RECOVERED: "Déclaré rétabli" } as Record<string, string>)[type] ?? type; }
+function eventLabel(type: string, label?: string): string { if (type === "NOTE_ADDED") return label || "Note de suivi"; return ({ REGISTERED: "Enregistré", PLACED_IN_FOSTER: "Placé en famille d'accueil", FOSTER_ENDED: "Accueil terminé", SENT_TO_REFUGE: "Envoyé au refuge", REFUGE_ZONE_CHANGED: "Zone du refuge changée", LEFT_REFUGE: "Sortie du refuge", ADOPTED: "Adopté", RETURNED: "Retour d'adoption", LOST: "Déclaré perdu", DECEASED: "Déclaré décédé", TRANSFERRED: "Transféré", DECLARED_SICK: "Déclaré malade", RECOVERED: "Déclaré rétabli" } as Record<string, string>)[type] ?? type; }

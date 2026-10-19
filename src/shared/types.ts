@@ -18,6 +18,16 @@ export interface Cat {
   healthStatus: HealthStatus;
   intakeDate: string;
   notes: string;
+  description?: string;
+  photo?: string;
+  okWithCats?: boolean | null;
+  okWithDogs?: boolean | null;
+  okWithChildren?: boolean | null;
+  medications?: string;
+  medicationSchedule?: string;
+  medicationEndDate?: string;
+  vaccines?: string;
+  deworming?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -147,7 +157,7 @@ export interface PartnerPlace {
 export type CatEventType =
   | "REGISTERED" | "PLACED_IN_FOSTER" | "FOSTER_ENDED" | "SENT_TO_REFUGE"
   | "REFUGE_ZONE_CHANGED" | "LEFT_REFUGE" | "ADOPTED" | "RETURNED"
-  | "LOST" | "DECEASED" | "TRANSFERRED" | "DECLARED_SICK" | "RECOVERED";
+  | "LOST" | "DECEASED" | "TRANSFERRED" | "DECLARED_SICK" | "RECOVERED" | "NOTE_ADDED";
 
 export interface CatEvent {
   id: string;
@@ -155,6 +165,7 @@ export interface CatEvent {
   type: CatEventType;
   date: string;
   notes: string;
+  label?: string;
   createdAt: string;
 }
 
@@ -194,6 +205,12 @@ export interface FollowUp {
   updatedAt: string;
 }
 
+export interface Sponsorship {
+  id: string; catId: string; firstName: string; lastName: string; email: string;
+  monthlyAmount: number; startDate: string; endDate: string; paymentNotes: string; notes: string;
+  createdAt: string; updatedAt: string;
+}
+
 export interface Dataset {
   schemaVersion: number;
   datasetId: string;
@@ -215,6 +232,7 @@ export interface Dataset {
   catEvents: CatEvent[];
   tasks: Task[];
   followUps: FollowUp[];
+  sponsorships: Sponsorship[];
 }
 
 export interface CatView extends Cat {
@@ -243,9 +261,16 @@ export interface CatInput {
   healthStatus?: HealthStatus;
   intakeDate?: string;
   notes?: string;
+  description?: string; photo?: string; okWithCats?: boolean | null; okWithDogs?: boolean | null; okWithChildren?: boolean | null;
+  medications?: string; medicationSchedule?: string; medicationEndDate?: string; vaccines?: string; deworming?: string;
 }
 
 export interface CatUpdateInput extends Partial<CatInput> { id: string; }
+export interface SponsorshipInput { catId: string; firstName: string; lastName: string; email?: string; monthlyAmount: number; startDate: string; endDate?: string; paymentNotes?: string; notes?: string; }
+export type CareTaskType = "VERMIFUGE" | "VACCIN" | "STERILISATION";
+export interface TaskInput { catId: string; type: CareTaskType; dueDate: string; notes?: string; }
+export interface CareRecordInput { catId: string; type: CareTaskType; completedAt: string; nextDueDate?: string; notes?: string; }
+export interface CatHistoryInput { catId: string; date: string; title: string; notes?: string; nextDate?: string; }
 
 export interface FamilyInput {
   label?: string;
@@ -354,6 +379,13 @@ export interface CatAppApi {
   declareSickness(input: { catId: string; disease: string; declaredAt: string; lookbackDays: number; notes?: string }): Promise<{ snapshot: AppSnapshot; exposures: HealthExposure[] }>;
   resolveHealthAlert(input: { alertId: string; resolvedAt: string; notes?: string }): Promise<AppSnapshot>;
   getHealthExposures(healthAlertId: string): Promise<HealthExposure[]>;
+  createSponsorship(input: SponsorshipInput): Promise<AppSnapshot>;
+  updateSponsorship(input: SponsorshipInput & { id: string }): Promise<AppSnapshot>;
+  declareCatDeceased(input: { catId: string; date: string; notes?: string }): Promise<AppSnapshot>;
+  createTask(input: TaskInput): Promise<AppSnapshot>;
+  recordCare(input: CareRecordInput): Promise<AppSnapshot>;
+  recordCatHistory(input: CatHistoryInput): Promise<AppSnapshot>;
+  completeTask(input: { id: string; completedAt: string; nextDueDate?: string }): Promise<AppSnapshot>;
   chooseAndPreviewLegacyCsv(): Promise<LegacyImportPreview | null>;
   commitLegacyImport(preview: LegacyImportPreview): Promise<{ snapshot: AppSnapshot; result: ImportCommitResult }>;
   chooseDatasetDirectory(): Promise<AppSnapshot | null>;

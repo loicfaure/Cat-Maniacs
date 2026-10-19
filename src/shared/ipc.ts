@@ -29,6 +29,13 @@ export const IPC = {
   declareSickness: "health:declare-sickness",
   resolveHealthAlert: "health:resolve-alert",
   getHealthExposures: "health:exposures",
+  createSponsorship: "sponsorships:create",
+  updateSponsorship: "sponsorships:update",
+  declareCatDeceased: "cats:declare-deceased",
+  createTask: "tasks:create",
+  recordCare: "tasks:record-care",
+  recordCatHistory: "cats:record-history",
+  completeTask: "tasks:complete",
   chooseLegacyCsv: "legacy:choose-preview",
   commitLegacyImport: "legacy:commit"
 } as const;

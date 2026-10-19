@@ -20,7 +20,8 @@ if (!executable) {
 
 const environment = { ...process.env };
 delete environment.ELECTRON_RUN_AS_NODE;
-const child = spawn(executable, ["."], { stdio: "inherit", env: environment });
+const launchArgs = process.env.CAT_DISPENSER_NO_SANDBOX === "1" ? ["--no-sandbox", "."] : ["."];
+const child = spawn(executable, launchArgs, { stdio: "inherit", env: environment });
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   else process.exit(code ?? 0);

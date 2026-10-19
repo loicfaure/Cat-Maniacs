@@ -1,16 +1,16 @@
 import { access, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createEmptyDataset, CURRENT_SCHEMA_VERSION, validateDatasetReferences } from "../domain/dataset";
+import { createEmptyDataset, CURRENT_SCHEMA_VERSION, deriveCatView, validateDatasetReferences } from "../domain/dataset";
 import type { CatProfile, Dataset } from "../shared/types";
 import { csvToRecords, stringifyCsv } from "./csv";
 
 type DatasetListKey = "cats" | "families" | "adopters" | "fosterFamilyHolidays" | "fosterPlacements" |
   "refugeZones" | "refugeStays" | "adoptions" | "adoptionDays" | "adoptionDayCats" | "healthAlerts" |
-  "partnerPlaces" | "catEvents" | "tasks" | "followUps";
+  "partnerPlaces" | "catEvents" | "tasks" | "followUps" | "sponsorships";
 interface TableDefinition { key: DatasetListKey; file: string; headers: string[]; }
 
 const TABLES: TableDefinition[] = [
-  { key: "cats", file: "cats.csv", headers: ["id", "name", "identificationNumber", "birthDate", "sex", "profile", "sterilizationStatus", "adoptionEligibility", "adoptionBlockedReason", "healthStatus", "intakeDate", "notes", "createdAt", "updatedAt"] },
+  { key: "cats", file: "cats.csv", headers: ["id", "name", "identificationNumber", "birthDate", "sex", "profile", "sterilizationStatus", "adoptionEligibility", "adoptionBlockedReason", "healthStatus", "intakeDate", "notes", "description", "photo", "okWithCats", "okWithDogs", "okWithChildren", "medications", "medicationSchedule", "medicationEndDate", "vaccines", "deworming", "createdAt", "updatedAt"] },
   { key: "families", file: "families.csv", headers: ["id", "label", "courtesyTitle", "firstName", "lastName", "email", "phone", "address", "maxCapacity", "acceptedProfiles", "notes", "createdAt", "updatedAt"] },
   { key: "adopters", file: "adopters.csv", headers: ["id", "label", "courtesyTitle", "firstName", "lastName", "email", "phone", "address", "notes", "createdAt", "updatedAt"] },
   { key: "fosterFamilyHolidays", file: "foster_family_holidays.csv", headers: ["id", "familyId", "startDate", "endDate", "notes", "createdAt"] },
@@ -22,9 +22,10 @@ const TABLES: TableDefinition[] = [
   { key: "adoptionDayCats", file: "adoption_day_cats.csv", headers: ["id", "adoptionDayId", "catId", "status", "overrideReason", "notes", "adopterId", "bookedAt", "createdAt", "updatedAt"] },
   { key: "partnerPlaces", file: "partner_places.csv", headers: ["id", "name", "address", "notes", "createdAt", "updatedAt"] },
   { key: "healthAlerts", file: "health_alerts.csv", headers: ["id", "catId", "disease", "declaredAt", "lookbackDays", "status", "resolvedAt", "notes", "createdAt", "updatedAt"] },
-  { key: "catEvents", file: "cat_events.csv", headers: ["id", "catId", "type", "date", "notes", "createdAt"] },
+  { key: "catEvents", file: "cat_events.csv", headers: ["id", "catId", "type", "date", "label", "notes", "createdAt"] },
   { key: "tasks", file: "tasks.csv", headers: ["id", "catId", "type", "status", "dueDate", "completedAt", "notes", "createdAt", "updatedAt"] },
-  { key: "followUps", file: "follow_ups.csv", headers: ["id", "catId", "adoptionId", "requestedAt", "response", "lastNewsAt", "createdAt", "updatedAt"] }
+  { key: "followUps", file: "follow_ups.csv", headers: ["id", "catId", "adoptionId", "requestedAt", "response", "lastNewsAt", "createdAt", "updatedAt"] },
+  { key: "sponsorships", file: "sponsorships.csv", headers: ["id", "catId", "firstName", "lastName", "email", "monthlyAmount", "startDate", "endDate", "paymentNotes", "notes", "createdAt", "updatedAt"] }
 ];
 
 interface TransactionFile { temporary: string; target: string; }
@@ -55,11 +56,21 @@ export class DatasetRepository {
     for (const table of TABLES) {
       const records = await this.readOptionalTable(table.file);
       if (table.key === "cats") dataset.cats = records.map(normalizeCat) as Dataset["cats"];
+      else if (table.key === "sponsorships") dataset.sponsorships = records.map((record) => ({ ...record, monthlyAmount: Number(record.monthlyAmount || 0) })) as unknown as Dataset["sponsorships"];
       else if (table.key === "families") dataset.families = records.map((record) => ({ ...record, maxCapacity: Number(record.maxCapacity || 1), acceptedProfiles: splitProfiles(record.acceptedProfiles) })) as Dataset["families"];
       else if (table.key === "healthAlerts") dataset.healthAlerts = records.map((record) => ({ ...record, lookbackDays: Number(record.lookbackDays || 0) })) as Dataset["healthAlerts"];
       else if (table.key === "adoptionDayCats") dataset.adoptionDayCats = records.map((record) => ({ ...record, adopterId: record.adopterId || "", bookedAt: record.bookedAt || "" })) as Dataset["adoptionDayCats"];
       else (dataset[table.key] as unknown[]) = records as unknown[];
     }
+    let endedForDeceased = false;
+    for (const cat of dataset.cats) {
+      if (deriveCatView(dataset, cat).status !== "DECEASED") continue;
+      const terminal = dataset.catEvents.filter((event) => event.catId === cat.id && ["LOST", "DECEASED"].includes(event.type)).sort((a, b) => b.date.localeCompare(a.date))[0];
+      if (!terminal || terminal.type !== "DECEASED") continue;
+      for (const sponsorship of dataset.sponsorships) if (sponsorship.catId === cat.id && !sponsorship.endDate) { sponsorship.endDate = terminal.date; sponsorship.updatedAt = new Date().toISOString(); endedForDeceased = true; }
+      for (const task of dataset.tasks) if (task.catId === cat.id && task.status === "OPEN") { task.status = "CANCELLED"; task.updatedAt = new Date().toISOString(); endedForDeceased = true; }
+    }
+    if (endedForDeceased) { this.migrationPerformed = true; dataset.updatedAt = new Date().toISOString(); }
     this.assertReferences(dataset); return dataset;
   }
 
@@ -138,7 +149,7 @@ function emptyFromManifest(manifest: Pick<Dataset, "schemaVersion" | "datasetId"
   return { ...base, ...manifest, schemaVersion: CURRENT_SCHEMA_VERSION, refugeZones: base.refugeZones };
 }
 function normalizeCat(record: Record<string, string>) {
-  return { ...record, sex: record.sex || "UNKNOWN", profile: record.profile || "ADULT", sterilizationStatus: record.sterilizationStatus || "UNKNOWN", adoptionEligibility: record.adoptionEligibility || "ELIGIBLE", adoptionBlockedReason: record.adoptionBlockedReason || "", healthStatus: record.healthStatus || "HEALTHY" };
+  return { ...record, sex: record.sex || "UNKNOWN", profile: record.profile || "ADULT", sterilizationStatus: record.sterilizationStatus || "UNKNOWN", adoptionEligibility: record.adoptionEligibility || "ELIGIBLE", adoptionBlockedReason: record.adoptionBlockedReason || "", healthStatus: record.healthStatus || "HEALTHY", description: record.description || "", photo: record.photo || "", okWithCats: record.okWithCats === "true" ? true : record.okWithCats === "false" ? false : null, okWithDogs: record.okWithDogs === "true" ? true : record.okWithDogs === "false" ? false : null, okWithChildren: record.okWithChildren === "true" ? true : record.okWithChildren === "false" ? false : null, medications: record.medications || "", medicationSchedule: record.medicationSchedule || "", medicationEndDate: record.medicationEndDate || "", vaccines: record.vaccines || "", deworming: record.deworming || "" };
 }
 function splitProfiles(value: string): CatProfile[] { return (value || "ADULT").split("|").filter(Boolean) as CatProfile[]; }
 async function exists(path: string): Promise<boolean> { try { await access(path); return true; } catch { return false; } }
