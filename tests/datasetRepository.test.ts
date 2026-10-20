@@ -11,8 +11,19 @@ describe("CSV dataset repository", () => {
     const directory = await mkdtemp(join(tmpdir(), "cat-dispenser-test-"));
     const opened = await DatasetRepository.open(directory);
     const service = new CatService(opened.dataset);
-    service.createCat({ name: "Milo", birthDate: "2025-06-12", intakeDate: "2026-01-02", notes: "Très sociable" });
-    service.createFamily({ firstName: "Ana", lastName: "Martin", maxCapacity: 4, acceptedProfiles: ["ADULT", "KITTEN"], email: "ana@example.com" });
+    service.createCat({
+      name: "Milo",
+      birthDate: "2025-06-12",
+      intakeDate: "2026-01-02",
+      notes: "Très sociable",
+    });
+    service.createFamily({
+      firstName: "Ana",
+      lastName: "Martin",
+      maxCapacity: 4,
+      acceptedProfiles: ["ADULT", "KITTEN"],
+      email: "ana@example.com",
+    });
     service.createAdopter({ firstName: "Tom", lastName: "Durand", email: "tom@example.com" });
     await opened.repository.save(opened.dataset);
 

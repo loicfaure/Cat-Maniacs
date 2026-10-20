@@ -25,13 +25,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --configLoader runner",
     "test:watch": "vitest --configLoader runner",
-    "check": "npm run privacy && npm run typecheck && npm test && npm run build"
+    "check": "npm run privacy && npm run lint && npm run typecheck && npm test && npm run build",
+    "lint": "biome check src scripts tests",
+    "lint:fix": "biome check --write --unsafe src scripts tests"
   },
   "dependencies": {
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

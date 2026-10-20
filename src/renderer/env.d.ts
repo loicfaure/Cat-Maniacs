@@ -5,5 +5,3 @@ declare global {
     catApp: CatAppApi;
   }
 }
-
-export {};

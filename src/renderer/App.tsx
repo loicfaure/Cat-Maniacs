@@ -1,15 +1,43 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type PointerEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { profileForBirthDate } from "../domain/catAge";
 import type {
-  Adoption, AdoptionDaySuggestionGroup, AdoptionEligibility, AppSnapshot, CatProfile,
-  CatStatus, HealthExposure, LegacyImportPreview, SterilizationStatus
+  Adoption,
+  AdoptionDaySuggestionGroup,
+  AdoptionEligibility,
+  AppSnapshot,
+  CatProfile,
+  CatStatus,
+  HealthExposure,
+  LegacyImportPreview,
+  SterilizationStatus,
 } from "../shared/types";
 import { searchAdoptionCats } from "./catSearch";
 import { buildCatTable, type CatSortField, type SortDirection } from "./catTable";
-import { profileForBirthDate } from "../domain/catAge";
 
-type Page = "dashboard" | "cats" | "families" | "adoptions" | "adoptionDays" | "refuge" | "import" | "care" | "email" | "sponsorships";
+type Page =
+  | "dashboard"
+  | "cats"
+  | "families"
+  | "adoptions"
+  | "adoptionDays"
+  | "refuge"
+  | "import"
+  | "care"
+  | "email"
+  | "sponsorships";
 type Notice = { kind: "success" | "error"; text: string };
-interface PageProps { snapshot: AppSnapshot; run: (operation: () => Promise<AppSnapshot>, message: string) => Promise<void>; }
+interface PageProps {
+  snapshot: AppSnapshot;
+  run: (operation: () => Promise<AppSnapshot>, message: string) => Promise<void>;
+}
 
 const PAGE_META: Array<{ id: Page; label: string; icon: string }> = [
   { id: "dashboard", label: "Vue d'ensemble", icon: "⌂" },
@@ -18,17 +46,25 @@ const PAGE_META: Array<{ id: Page; label: string; icon: string }> = [
   { id: "families", label: "Familles d'accueil", icon: "⌁" },
   { id: "adoptions", label: "Adoptions", icon: "♡" },
   { id: "adoptionDays", label: "Journées adoption", icon: "☀" },
-  { id: "sponsorships", label: "Parrainages", icon: "💰" }, { id: "care", label: "Rappels", icon: "◷" },
-  { id: "email", label: "E-mails", icon: "✉" }, { id: "import", label: "Importer", icon: "⇥" }
+  { id: "sponsorships", label: "Parrainages", icon: "💰" },
+  { id: "care", label: "Rappels", icon: "◷" },
+  { id: "email", label: "E-mails", icon: "✉" },
+  { id: "import", label: "Importer", icon: "⇥" },
 ];
 
 const STATUS_LABEL: Record<CatStatus, string> = {
-  FOSTERED: "En accueil", AT_REFUGE: "Au refuge",
-  ADOPTED: "Adopté", LOST: "Perdu", DECEASED: "Décédé"
+  FOSTERED: "En accueil",
+  AT_REFUGE: "Au refuge",
+  ADOPTED: "Adopté",
+  LOST: "Perdu",
+  DECEASED: "Décédé",
 };
 const PROFILE_LABEL: Record<CatProfile, string> = {
-  BOTTLE_KITTEN: "Chaton à biberonner", KITTEN: "Chaton", ADULT: "Adulte",
-  SENIOR: "Senior", SPECIAL_NEEDS: "Besoins particuliers"
+  BOTTLE_KITTEN: "Chaton à biberonner",
+  KITTEN: "Chaton",
+  ADULT: "Adulte",
+  SENIOR: "Senior",
+  SPECIAL_NEEDS: "Besoins particuliers",
 };
 const ALL_PROFILES = Object.keys(PROFILE_LABEL) as CatProfile[];
 
@@ -37,37 +73,121 @@ function localToday(): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 function formatDate(value: string): string {
-  if (!value) return "—";
+  if (!value) {
+    return "—";
+  }
   const [year, month, day] = value.split("-");
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
 function dateFromFrench(value: string): string {
   const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value.trim());
-  if (!match) return "";
+  if (!match) {
+    return "";
+  }
   const [, day, month, year] = match;
   const date = new Date(Number(year), Number(month) - 1, Number(day));
-  if (date.getFullYear() !== Number(year) || date.getMonth() !== Number(month) - 1 || date.getDate() !== Number(day)) return "";
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  ) {
+    return "";
+  }
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
-function FrenchDateInput({ name, value, defaultValue, required, onChange }: { name: string; value?: string; defaultValue?: string; required?: boolean; onChange?: (iso: string) => void }) {
+function FrenchDateInput({
+  name,
+  value,
+  defaultValue,
+  required,
+  onChange,
+}: {
+  name: string;
+  value?: string;
+  defaultValue?: string;
+  required?: boolean;
+  onChange?: (iso: string) => void;
+}) {
   const controlled = value !== undefined;
-  const initialValue = controlled ? value : defaultValue ?? "";
-  const [text, setText] = useState(formatDate(initialValue) === "—" ? "" : formatDate(initialValue));
+  const initialValue = controlled ? value : (defaultValue ?? "");
+  const [text, setText] = useState(
+    formatDate(initialValue) === "—" ? "" : formatDate(initialValue),
+  );
   const iso = dateFromFrench(text);
-  useEffect(() => { if (controlled) setText(formatDate(value) === "—" ? "" : formatDate(value)); }, [controlled, value]);
-  return <><input className="french-date-input" type="text" inputMode="numeric" placeholder="JJ/MM/AAAA" aria-label="Date au format jour/mois/année" value={text} required={required} onChange={(event) => { const next = event.target.value; const parsed = dateFromFrench(next); event.target.setCustomValidity(next && !parsed ? "Saisissez une date valide au format JJ/MM/AAAA." : ""); setText(next); onChange?.(parsed); }} onBlur={() => { if (iso) setText(formatDate(iso)); }} /><input type="hidden" name={name} value={iso}/></>;
+  useEffect(() => {
+    if (controlled) {
+      setText(formatDate(value) === "—" ? "" : formatDate(value));
+    }
+  }, [controlled, value]);
+  return (
+    <>
+      <input
+        className="french-date-input"
+        type="text"
+        inputMode="numeric"
+        placeholder="JJ/MM/AAAA"
+        aria-label="Date au format jour/mois/année"
+        value={text}
+        required={required}
+        onChange={(event) => {
+          const next = event.target.value;
+          const parsed = dateFromFrench(next);
+          event.target.setCustomValidity(
+            next && !parsed ? "Saisissez une date valide au format JJ/MM/AAAA." : "",
+          );
+          setText(next);
+          onChange?.(parsed);
+        }}
+        onBlur={() => {
+          if (iso) {
+            setText(formatDate(iso));
+          }
+        }}
+      />
+      <input type="hidden" name={name} value={iso} />
+    </>
+  );
 }
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, "") : String(error);
+  return error instanceof Error
+    ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, "")
+    : String(error);
 }
 function catWarnings(cat: AppSnapshot["cats"][number]): string[] {
   const warnings: string[] = [];
-  if (cat.sterilizationStatus !== "DONE") warnings.push("Stérilisation non confirmée");
-  if (cat.healthStatus === "SICK") warnings.push("Malade / surveillance sanitaire");
-  if (cat.adoptionEligibility !== "ELIGIBLE") warnings.push(cat.adoptionBlockedReason || "Adoption non autorisée");
+  if (cat.sterilizationStatus !== "DONE") {
+    warnings.push("Stérilisation non confirmée");
+  }
+  if (cat.healthStatus === "SICK") {
+    warnings.push("Malade / surveillance sanitaire");
+  }
+  if (cat.adoptionEligibility !== "ELIGIBLE") {
+    warnings.push(cat.adoptionBlockedReason || "Adoption non autorisée");
+  }
   return warnings;
 }
-function careTypeLabel(type: string): string { if (type === "VERMIFUGE") return "Vermifuge"; if (type === "ANTI_PUCE" || type.toLowerCase().includes("anti-puce")) return "Anti-puce"; if (type === "VACCIN" || type === "VACCINATION") return "Vaccin / injection"; if (type.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes("sterilis") || ["neutering", "spay", "castration"].some((word) => type.toLowerCase().includes(word))) return "Stérilisation"; return type; }
+function careTypeLabel(type: string): string {
+  if (type === "VERMIFUGE") {
+    return "Vermifuge";
+  }
+  if (type === "ANTI_PUCE" || type.toLowerCase().includes("anti-puce")) {
+    return "Anti-puce";
+  }
+  if (type === "VACCIN" || type === "VACCINATION") {
+    return "Vaccin / injection";
+  }
+  if (
+    type
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .includes("sterilis") ||
+    ["neutering", "spay", "castration"].some((word) => type.toLowerCase().includes(word))
+  ) {
+    return "Stérilisation";
+  }
+  return type;
+}
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
@@ -77,32 +197,69 @@ export function App() {
   const [emailCatId, setEmailCatId] = useState("");
   const [healthCatId, setHealthCatId] = useState<string | null>(null);
   const [switchingDemo, setSwitchingDemo] = useState(false);
-  useEffect(() => { window.catApp.bootstrap().then(setSnapshot).catch((error) => setNotice({ kind: "error", text: errorMessage(error) })); }, []);
   useEffect(() => {
-    const timer = window.setInterval(() => { window.catApp.bootstrap().then(setSnapshot).catch(() => undefined); }, 60 * 60 * 1000);
+    window.catApp
+      .bootstrap()
+      .then(setSnapshot)
+      .catch((error) => setNotice({ kind: "error", text: errorMessage(error) }));
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => {
+        window.catApp
+          .bootstrap()
+          .then(setSnapshot)
+          .catch(() => undefined);
+      },
+      60 * 60 * 1000,
+    );
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     const showCat = (event: Event) => setSelectedCatId((event as CustomEvent<string>).detail);
-    const showFamily = (event: Event) => { const familyId = (event as CustomEvent<string>).detail; setPage("families"); window.setTimeout(() => document.getElementById(`family-${familyId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); };
-    window.addEventListener("cat:open", showCat); window.addEventListener("family:open", showFamily);
-    return () => { window.removeEventListener("cat:open", showCat); window.removeEventListener("family:open", showFamily); };
+    const showFamily = (event: Event) => {
+      const familyId = (event as CustomEvent<string>).detail;
+      setPage("families");
+      window.setTimeout(
+        () =>
+          document
+            .getElementById(`family-${familyId}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+        50,
+      );
+    };
+    window.addEventListener("cat:open", showCat);
+    window.addEventListener("family:open", showFamily);
+    return () => {
+      window.removeEventListener("cat:open", showCat);
+      window.removeEventListener("family:open", showFamily);
+    };
   }, []);
   const run = async (operation: () => Promise<AppSnapshot>, message: string) => {
     try {
-      setSnapshot(await operation()); setNotice({ kind: "success", text: message });
+      setSnapshot(await operation());
+      setNotice({ kind: "success", text: message });
       window.setTimeout(() => setNotice(null), 3500);
-    } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); }
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    }
   };
   const switchDemoMode = async () => {
-    if (!snapshot) return;
+    if (!snapshot) {
+      return;
+    }
     try {
       setSwitchingDemo(true);
       const enabled = !snapshot.demoMode;
       setSnapshot(await window.catApp.setDemoMode(enabled));
       setSelectedCatId(null);
       setPage("dashboard");
-      setNotice({ kind: "success", text: enabled ? "Mode démo activé. Vos données réelles restent isolées." : "Mode démo quitté. Votre registre réel est ouvert." });
+      setNotice({
+        kind: "success",
+        text: enabled
+          ? "Mode démo activé. Vos données réelles restent isolées."
+          : "Mode démo quitté. Votre registre réel est ouvert.",
+      });
     } catch (error) {
       setNotice({ kind: "error", text: errorMessage(error) });
     } finally {
@@ -116,78 +273,613 @@ export function App() {
       setNotice({ kind: "error", text: errorMessage(error) });
     }
   };
-  if (!snapshot) return <div className="loading"><div className="cat-mark">C</div><p>Ouverture du registre…</p></div>;
-  const pageTitle = PAGE_META.find((item) => item.id === page)?.label ?? "";
-  return <div className="shell">
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">C</div><div><strong>Cha'Mania</strong><span>Registre félin</span></div></div>
-      {snapshot.demoMode && <div className="demo-badge">Mode démo · {snapshot.cats.length} chats</div>}
-      <nav>{PAGE_META.map((item) => <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => { setHealthCatId(null); setPage(item.id); }}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "cats" && <small>{snapshot.cats.length}</small>}</button>)}</nav>
-      <div className="dataset-card"><span>Jeu de données</span><strong title={snapshot.datasetPath}>{snapshot.name}</strong><button disabled={snapshot.demoMode} onClick={async () => { const selected = await window.catApp.chooseDatasetDirectory(); if (selected) { setSnapshot(selected); setNotice({ kind: "success", text: "Jeu de données ouvert." }); } }}>{snapshot.demoMode ? "Dossier de démonstration isolé" : "Changer de dossier"}</button></div>
-      <button className={`demo-switch ${snapshot.demoMode ? "active" : ""}`} disabled={switchingDemo} onClick={() => void switchDemoMode()}><span>{snapshot.demoMode ? "←" : "✦"}</span>{switchingDemo ? "Changement en cours…" : snapshot.demoMode ? "Quitter le mode démo" : "Essayer le mode démo"}</button>
-    </aside>
-    <main><header className="topbar"><div><span className="eyebrow">Gestion associative</span><h1>{pageTitle}</h1></div><div className="save-state"><span className="save-dot" />{snapshot.demoMode ? "Données de démonstration isolées" : "Sauvegarde locale active"}</div></header>
-      {notice && <div className={`notice ${notice.kind}`}>{notice.text}<button onClick={() => setNotice(null)}>×</button></div>}
-      <div className="content">
-        {page === "dashboard" && <Dashboard snapshot={snapshot} navigate={setPage} run={run} />}
-        {page === "cats" && <CatsPage snapshot={snapshot} run={run} />}
-        {page === "families" && <FamiliesPage snapshot={snapshot} run={run} />}
-        {page === "adoptions" && <AdoptionsPage snapshot={snapshot} run={run} />}
-        {page === "adoptionDays" && <AdoptionDaysPage snapshot={snapshot} run={run} setNotice={setNotice} />}
-        {page === "refuge" && <RefugePage snapshot={snapshot} run={run} />}
-        {page === "import" && <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />}
-        {page === "care" && (healthCatId ? <HealthIssuePage catId={healthCatId} snapshot={snapshot} run={run} setSnapshot={setSnapshot} setNotice={setNotice} back={() => setHealthCatId(null)} /> : <CarePage snapshot={snapshot} run={run} />)}
-        {page === "email" && <EmailPage snapshot={snapshot} initialCatId={emailCatId} />}
-        {page === "sponsorships" && <SponsorshipsPage snapshot={snapshot} run={run} />}
+  if (!snapshot) {
+    return (
+      <div className="loading">
+        <div className="cat-mark">C</div>
+        <p>Ouverture du registre…</p>
       </div>
-    </main>{snapshot.showDemoWelcome && <div className="demo-welcome-backdrop"><section className="demo-welcome" role="dialog" aria-modal="true" aria-labelledby="demo-welcome-title"><div className="demo-welcome-mark">C</div><span className="eyebrow">Première visite</span><h2 id="demo-welcome-title">Bienvenue dans le mode démo</h2><p>Explorez l'application avec 64 chats et des données entièrement fictives. Votre vrai registre reste séparé et ne sera jamais modifié pendant la démonstration.</p><ul><li>Testez les accueils, adoptions et journées d'adoption.</li><li>Les changements restent dans le dossier de démonstration.</li><li>Le mode démo restera actif entre les lancements.</li></ul><div className="demo-welcome-actions"><button className="button primary" disabled={switchingDemo} onClick={() => void dismissDemoWelcome()}>Explorer la démonstration</button><button className="button secondary" disabled={switchingDemo} onClick={() => void switchDemoMode()}>Utiliser mon registre</button></div><small>Vous pourrez changer de mode à tout moment avec le bouton en bas à gauche.</small></section></div>}{selectedCatId && <CatDetail key={selectedCatId} catId={selectedCatId} snapshot={snapshot} close={() => setSelectedCatId(null)} goHealth={() => { setHealthCatId(selectedCatId); setSelectedCatId(null); setPage("care"); }} run={run} setSnapshot={setSnapshot} setNotice={setNotice} setEmailCatId={setEmailCatId} setPage={setPage}/>}
-  </div>;
+    );
+  }
+  const pageTitle = PAGE_META.find((item) => item.id === page)?.label ?? "";
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">C</div>
+          <div>
+            <strong>Cha'Mania</strong>
+            <span>Registre félin</span>
+          </div>
+        </div>
+        {snapshot.demoMode && (
+          <div className="demo-badge">Mode démo · {snapshot.cats.length} chats</div>
+        )}
+        <nav>
+          {PAGE_META.map((item) => (
+            <button
+              key={item.id}
+              className={page === item.id ? "active" : ""}
+              onClick={() => {
+                setHealthCatId(null);
+                setPage(item.id);
+              }}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              {item.label}
+              {item.id === "cats" && <small>{snapshot.cats.length}</small>}
+            </button>
+          ))}
+        </nav>
+        <div className="dataset-card">
+          <span>Jeu de données</span>
+          <strong title={snapshot.datasetPath}>{snapshot.name}</strong>
+          <button
+            disabled={snapshot.demoMode}
+            onClick={async () => {
+              const selected = await window.catApp.chooseDatasetDirectory();
+              if (selected) {
+                setSnapshot(selected);
+                setNotice({ kind: "success", text: "Jeu de données ouvert." });
+              }
+            }}
+          >
+            {snapshot.demoMode ? "Dossier de démonstration isolé" : "Changer de dossier"}
+          </button>
+        </div>
+        <button
+          className={`demo-switch ${snapshot.demoMode ? "active" : ""}`}
+          disabled={switchingDemo}
+          onClick={() => void switchDemoMode()}
+        >
+          <span>{snapshot.demoMode ? "←" : "✦"}</span>
+          {switchingDemo
+            ? "Changement en cours…"
+            : snapshot.demoMode
+              ? "Quitter le mode démo"
+              : "Essayer le mode démo"}
+        </button>
+      </aside>
+      <main>
+        <header className="topbar">
+          <div>
+            <span className="eyebrow">Gestion associative</span>
+            <h1>{pageTitle}</h1>
+          </div>
+          <div className="save-state">
+            <span className="save-dot" />
+            {snapshot.demoMode ? "Données de démonstration isolées" : "Sauvegarde locale active"}
+          </div>
+        </header>
+        {notice && (
+          <div className={`notice ${notice.kind}`}>
+            {notice.text}
+            <button onClick={() => setNotice(null)}>×</button>
+          </div>
+        )}
+        <div className="content">
+          {page === "dashboard" && <Dashboard snapshot={snapshot} navigate={setPage} run={run} />}
+          {page === "cats" && <CatsPage snapshot={snapshot} run={run} />}
+          {page === "families" && <FamiliesPage snapshot={snapshot} run={run} />}
+          {page === "adoptions" && <AdoptionsPage snapshot={snapshot} run={run} />}
+          {page === "adoptionDays" && (
+            <AdoptionDaysPage snapshot={snapshot} run={run} setNotice={setNotice} />
+          )}
+          {page === "refuge" && <RefugePage snapshot={snapshot} run={run} />}
+          {page === "import" && (
+            <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />
+          )}
+          {page === "care" &&
+            (healthCatId ? (
+              <HealthIssuePage
+                catId={healthCatId}
+                snapshot={snapshot}
+                run={run}
+                setSnapshot={setSnapshot}
+                setNotice={setNotice}
+                back={() => setHealthCatId(null)}
+              />
+            ) : (
+              <CarePage snapshot={snapshot} run={run} />
+            ))}
+          {page === "email" && <EmailPage snapshot={snapshot} initialCatId={emailCatId} />}
+          {page === "sponsorships" && <SponsorshipsPage snapshot={snapshot} run={run} />}
+        </div>
+      </main>
+      {snapshot.showDemoWelcome && (
+        <div className="demo-welcome-backdrop">
+          <section
+            className="demo-welcome"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="demo-welcome-title"
+          >
+            <div className="demo-welcome-mark">C</div>
+            <span className="eyebrow">Première visite</span>
+            <h2 id="demo-welcome-title">Bienvenue dans le mode démo</h2>
+            <p>
+              Explorez l'application avec 64 chats et des données entièrement fictives. Votre vrai
+              registre reste séparé et ne sera jamais modifié pendant la démonstration.
+            </p>
+            <ul>
+              <li>Testez les accueils, adoptions et journées d'adoption.</li>
+              <li>Les changements restent dans le dossier de démonstration.</li>
+              <li>Le mode démo restera actif entre les lancements.</li>
+            </ul>
+            <div className="demo-welcome-actions">
+              <button
+                className="button primary"
+                disabled={switchingDemo}
+                onClick={() => void dismissDemoWelcome()}
+              >
+                Explorer la démonstration
+              </button>
+              <button
+                className="button secondary"
+                disabled={switchingDemo}
+                onClick={() => void switchDemoMode()}
+              >
+                Utiliser mon registre
+              </button>
+            </div>
+            <small>
+              Vous pourrez changer de mode à tout moment avec le bouton en bas à gauche.
+            </small>
+          </section>
+        </div>
+      )}
+      {selectedCatId && (
+        <CatDetail
+          key={selectedCatId}
+          catId={selectedCatId}
+          snapshot={snapshot}
+          close={() => setSelectedCatId(null)}
+          goHealth={() => {
+            setHealthCatId(selectedCatId);
+            setSelectedCatId(null);
+            setPage("care");
+          }}
+          run={run}
+          setSnapshot={setSnapshot}
+          setNotice={setNotice}
+          setEmailCatId={setEmailCatId}
+          setPage={setPage}
+        />
+      )}
+    </div>
+  );
 }
 
-function Dashboard({ snapshot, navigate, run }: { snapshot: AppSnapshot; navigate: (page: Page) => void; run: PageProps["run"] }) {
-  const count = (status: CatStatus) => snapshot.catViews.filter((cat) => cat.status === status).length;
-  const latestEvents = [...snapshot.catEvents].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
-  const familyCapacity = snapshot.families.map((family) => ({ family, cats: snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id), remaining: Math.max(0, family.maxCapacity - snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id).length) })).filter((group) => group.remaining > 0).sort((a, b) => b.remaining - a.remaining);
+function Dashboard({
+  snapshot,
+  navigate,
+  run,
+}: {
+  snapshot: AppSnapshot;
+  navigate: (page: Page) => void;
+  run: PageProps["run"];
+}) {
+  const count = (status: CatStatus) =>
+    snapshot.catViews.filter((cat) => cat.status === status).length;
+  const latestEvents = [...snapshot.catEvents]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 6);
+  const familyCapacity = snapshot.families
+    .map((family) => ({
+      family,
+      cats: snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id),
+      remaining: Math.max(
+        0,
+        family.maxCapacity -
+          snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id).length,
+      ),
+    }))
+    .filter((group) => group.remaining > 0)
+    .sort((a, b) => b.remaining - a.remaining);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const openAlerts = snapshot.healthAlerts.filter((alert) => alert.status === "OPEN");
-  const associationCatIds = new Set(snapshot.catViews.filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status)).map((cat) => cat.id));
-  const upcomingCare = snapshot.tasks.filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId)).sort((a,b) => a.dueDate.localeCompare(b.dueDate));
-  return <div className="page-stack">
-    <section className="hero-panel"><div><span className="eyebrow light">Aujourd'hui</span><h2>Chaque parcours, au bon endroit.</h2></div><div className="hero-actions"><button className="button light" onClick={() => navigate("cats")}>+ Enregistrer un chat</button><button className="button ghost-light" onClick={() => navigate("families")}>+ Ajouter une famille</button><button className="button ghost-light" onClick={() => navigate("adoptions")}>Préparer une adoption</button><button className="button ghost-light" onClick={() => navigate("adoptionDays")}>Préparer une journée</button></div></section>
-    <section className="metrics"><Metric label="Chats enregistrés" value={snapshot.cats.length} tone="ink"/><Metric label="En famille" value={count("FOSTERED")} tone="amber"/><Metric label="Au refuge" value={count("AT_REFUGE")} tone="sage"/><Metric label="Adoptés" value={count("ADOPTED")} tone="rose"/></section>
-    <Panel title="Places restantes" action={<button className="text-button" onClick={() => navigate("families")}>Gérer les accueils →</button>}>
-      <div className="location-grid">{familyCapacity.slice(0, 6).map(({ family, cats, remaining }) => <article className="location-card" key={family.id}><div><FamilyLink family={family}/><span>{remaining} place{remaining > 1 ? "s" : ""}</span></div><p>{cats.length}/{family.maxCapacity} occupées</p></article>)}{!familyCapacity.length && <Empty text="Aucune place disponible actuellement."/>}</div>
-    </Panel>
-    <div className="dashboard-grid"><Panel title="Rappels à venir" action={<button className="text-button" onClick={() => navigate("care")}>Voir les rappels →</button>}><div className="timeline">{upcomingCare.slice(0,5).map((task) => <div className="timeline-row" key={task.id}><span className="timeline-dot"/><div><CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!}/><span>{careTypeLabel(task.type)}{task.notes ? ` · ${task.notes}` : ""}</span></div><time>{formatDate(task.dueDate)}</time></div>)}{!upcomingCare.length && <Empty text="Aucun rappel à venir."/>}</div></Panel><Panel title="Mouvements récents">{latestEvents.length ? <div className="timeline">{latestEvents.map((event) => { const cat = snapshot.cats.find((candidate) => candidate.id === event.catId); return <div className="timeline-row" key={event.id}><span className="timeline-dot"/><div>{cat ? <CatIdentity cat={cat}/> : <strong>Chat inconnu</strong>}<span>{eventLabel(event.type, event.label)}{event.notes ? ` · ${event.notes}` : ""}</span></div><time>{formatDate(event.date)}</time></div>; })}</div> : <Empty text="Aucun mouvement enregistré."/>}</Panel>
-      <Panel title="Alertes" action={<button className="text-button" onClick={() => setAlertsOpen(!alertsOpen)}>{alertsOpen ? "Réduire" : "Ouvrir le menu →"}</button>}><button className="alert-summary" onClick={() => setAlertsOpen(!alertsOpen)}><strong>{openAlerts.length}</strong><span>alertes sanitaires actives</span></button>{alertsOpen && <div className="alert-menu">{openAlerts.map((alert) => { const cat = snapshot.cats.find((candidate) => candidate.id === alert.catId)!; return <article key={alert.id}><CatIdentity cat={cat}/><span>{alert.disease} · depuis le {formatDate(alert.declaredAt)}</span><button className="button tiny" onClick={() => void run(() => window.catApp.resolveHealthAlert({ alertId: alert.id, resolvedAt: localToday() }), "Alerte sanitaire terminée.")}>Terminer l'alerte</button></article>; })}{!openAlerts.length && <Empty text="Aucune alerte sanitaire active."/>}</div>}</Panel></div>
-  </div>;
+  const associationCatIds = new Set(
+    snapshot.catViews
+      .filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status))
+      .map((cat) => cat.id),
+  );
+  const upcomingCare = snapshot.tasks
+    .filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  return (
+    <div className="page-stack">
+      <section className="hero-panel">
+        <div>
+          <span className="eyebrow light">Aujourd'hui</span>
+          <h2>Chaque parcours, au bon endroit.</h2>
+        </div>
+        <div className="hero-actions">
+          <button className="button light" onClick={() => navigate("cats")}>
+            + Enregistrer un chat
+          </button>
+          <button className="button ghost-light" onClick={() => navigate("families")}>
+            + Ajouter une famille
+          </button>
+          <button className="button ghost-light" onClick={() => navigate("adoptions")}>
+            Préparer une adoption
+          </button>
+          <button className="button ghost-light" onClick={() => navigate("adoptionDays")}>
+            Préparer une journée
+          </button>
+        </div>
+      </section>
+      <section className="metrics">
+        <Metric label="Chats enregistrés" value={snapshot.cats.length} tone="ink" />
+        <Metric label="En famille" value={count("FOSTERED")} tone="amber" />
+        <Metric label="Au refuge" value={count("AT_REFUGE")} tone="sage" />
+        <Metric label="Adoptés" value={count("ADOPTED")} tone="rose" />
+      </section>
+      <Panel
+        title="Places restantes"
+        action={
+          <button className="text-button" onClick={() => navigate("families")}>
+            Gérer les accueils →
+          </button>
+        }
+      >
+        <div className="location-grid">
+          {familyCapacity.slice(0, 6).map(({ family, cats, remaining }) => (
+            <article className="location-card" key={family.id}>
+              <div>
+                <FamilyLink family={family} />
+                <span>
+                  {remaining} place{remaining > 1 ? "s" : ""}
+                </span>
+              </div>
+              <p>
+                {cats.length}/{family.maxCapacity} occupées
+              </p>
+            </article>
+          ))}
+          {!familyCapacity.length && <Empty text="Aucune place disponible actuellement." />}
+        </div>
+      </Panel>
+      <div className="dashboard-grid">
+        <Panel
+          title="Rappels à venir"
+          action={
+            <button className="text-button" onClick={() => navigate("care")}>
+              Voir les rappels →
+            </button>
+          }
+        >
+          <div className="timeline">
+            {upcomingCare.slice(0, 5).map((task) => (
+              <div className="timeline-row" key={task.id}>
+                <span className="timeline-dot" />
+                <div>
+                  <CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!} />
+                  <span>
+                    {careTypeLabel(task.type)}
+                    {task.notes ? ` · ${task.notes}` : ""}
+                  </span>
+                </div>
+                <time>{formatDate(task.dueDate)}</time>
+              </div>
+            ))}
+            {!upcomingCare.length && <Empty text="Aucun rappel à venir." />}
+          </div>
+        </Panel>
+        <Panel title="Mouvements récents">
+          {latestEvents.length ? (
+            <div className="timeline">
+              {latestEvents.map((event) => {
+                const cat = snapshot.cats.find((candidate) => candidate.id === event.catId);
+                return (
+                  <div className="timeline-row" key={event.id}>
+                    <span className="timeline-dot" />
+                    <div>
+                      {cat ? <CatIdentity cat={cat} /> : <strong>Chat inconnu</strong>}
+                      <span>
+                        {eventLabel(event.type, event.label)}
+                        {event.notes ? ` · ${event.notes}` : ""}
+                      </span>
+                    </div>
+                    <time>{formatDate(event.date)}</time>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <Empty text="Aucun mouvement enregistré." />
+          )}
+        </Panel>
+        <Panel
+          title="Alertes"
+          action={
+            <button className="text-button" onClick={() => setAlertsOpen(!alertsOpen)}>
+              {alertsOpen ? "Réduire" : "Ouvrir le menu →"}
+            </button>
+          }
+        >
+          <button className="alert-summary" onClick={() => setAlertsOpen(!alertsOpen)}>
+            <strong>{openAlerts.length}</strong>
+            <span>alertes sanitaires actives</span>
+          </button>
+          {alertsOpen && (
+            <div className="alert-menu">
+              {openAlerts.map((alert) => {
+                const cat = snapshot.cats.find((candidate) => candidate.id === alert.catId)!;
+                return (
+                  <article key={alert.id}>
+                    <CatIdentity cat={cat} />
+                    <span>
+                      {alert.disease} · depuis le {formatDate(alert.declaredAt)}
+                    </span>
+                    <button
+                      className="button tiny"
+                      onClick={() =>
+                        void run(
+                          () =>
+                            window.catApp.resolveHealthAlert({
+                              alertId: alert.id,
+                              resolvedAt: localToday(),
+                            }),
+                          "Alerte sanitaire terminée.",
+                        )
+                      }
+                    >
+                      Terminer l'alerte
+                    </button>
+                  </article>
+                );
+              })}
+              {!openAlerts.length && <Empty text="Aucune alerte sanitaire active." />}
+            </div>
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
 }
 
 function CarePage({ snapshot, run }: PageProps) {
-  const associationCatIds = new Set(snapshot.catViews.filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status)).map((cat) => cat.id));
-  const tasks = snapshot.tasks.filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId)).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const associationCatIds = new Set(
+    snapshot.catViews
+      .filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status))
+      .map((cat) => cat.id),
+  );
+  const tasks = snapshot.tasks
+    .filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const overdue = tasks.filter((task) => task.dueDate <= localToday()).length;
-  return <div className="page-stack"><div className="section-heading"><p>Les prochaines actions à faire pour les chats.</p><span className="care-count">{tasks.length} rappel(s) · {overdue} à faire ou en retard</span></div><Panel title={`Rappels à faire · ${tasks.length}`}><div className="table-wrap"><table className="adoption-table care-table"><thead><tr><th>Échéance</th><th>Chat</th><th>Rappel</th><th>Détail</th><th></th></tr></thead><tbody>{tasks.map((task) => { const due = task.dueDate <= localToday(); return <tr key={task.id}><td><span className={`care-status ${due ? "overdue" : "open"}`}>{due ? (task.dueDate < localToday() ? "En retard" : "À faire aujourd’hui") : "À venir"}</span><span className="reminder-date">{formatDate(task.dueDate)}</span></td><td><CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!}/></td><td><strong>{careTypeLabel(task.type)}</strong></td><td>{task.notes || "—"}</td><td><CareTaskAction task={task} run={run}/></td></tr>; })}</tbody></table></div>{!tasks.length && <Empty text="Aucun rappel en attente."/>}</Panel></div>;
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <p>Les prochaines actions à faire pour les chats.</p>
+        <span className="care-count">
+          {tasks.length} rappel(s) · {overdue} à faire ou en retard
+        </span>
+      </div>
+      <Panel title={`Rappels à faire · ${tasks.length}`}>
+        <div className="table-wrap">
+          <table className="adoption-table care-table">
+            <thead>
+              <tr>
+                <th>Échéance</th>
+                <th>Chat</th>
+                <th>Rappel</th>
+                <th>Détail</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((task) => {
+                const due = task.dueDate <= localToday();
+                return (
+                  <tr key={task.id}>
+                    <td>
+                      <span className={`care-status ${due ? "overdue" : "open"}`}>
+                        {due
+                          ? task.dueDate < localToday()
+                            ? "En retard"
+                            : "À faire aujourd’hui"
+                          : "À venir"}
+                      </span>
+                      <span className="reminder-date">{formatDate(task.dueDate)}</span>
+                    </td>
+                    <td>
+                      <CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!} />
+                    </td>
+                    <td>
+                      <strong>{careTypeLabel(task.type)}</strong>
+                    </td>
+                    <td>{task.notes || "—"}</td>
+                    <td>
+                      <CareTaskAction task={task} run={run} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!tasks.length && <Empty text="Aucun rappel en attente." />}
+      </Panel>
+    </div>
+  );
 }
 
-function CareTaskAction({ task, run }: { task: AppSnapshot["tasks"][number]; run: PageProps["run"] }) {
+function CareTaskAction({
+  task,
+  run,
+}: {
+  task: AppSnapshot["tasks"][number];
+  run: PageProps["run"];
+}) {
   const [editing, setEditing] = useState(false);
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const nextDueDate = String(data.get("nextDueDate")); void run(() => window.catApp.completeTask({ id: task.id, completedAt: String(data.get("completedAt")), nextDueDate: nextDueDate || undefined }), "Soin enregistré dans l'historique.").then(() => setEditing(false)); };
-  if (!editing) return <button className="button tiny care-done-button" onClick={() => setEditing(true)}>Enregistrer le soin</button>;
-  return <form className="care-complete-form" onSubmit={submit}><label>Fait le<FrenchDateInput name="completedAt" defaultValue={localToday()} required/></label><label>Prochaine date<FrenchDateInput name="nextDueDate"/></label><button className="button tiny care-done-button">Valider</button><button type="button" className="text-button" onClick={() => setEditing(false)}>Annuler</button></form>;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const nextDueDate = String(data.get("nextDueDate"));
+    void run(
+      () =>
+        window.catApp.completeTask({
+          id: task.id,
+          completedAt: String(data.get("completedAt")),
+          nextDueDate: nextDueDate || undefined,
+        }),
+      "Soin enregistré dans l'historique.",
+    ).then(() => setEditing(false));
+  };
+  if (!editing) {
+    return (
+      <button className="button tiny care-done-button" onClick={() => setEditing(true)}>
+        Enregistrer le soin
+      </button>
+    );
+  }
+  return (
+    <form className="care-complete-form" onSubmit={submit}>
+      <label>
+        Fait le
+        <FrenchDateInput name="completedAt" defaultValue={localToday()} required />
+      </label>
+      <label>
+        Prochaine date
+        <FrenchDateInput name="nextDueDate" />
+      </label>
+      <button className="button tiny care-done-button">Valider</button>
+      <button type="button" className="text-button" onClick={() => setEditing(false)}>
+        Annuler
+      </button>
+    </form>
+  );
 }
 
 function EmailPage({ snapshot, initialCatId }: { snapshot: AppSnapshot; initialCatId: string }) {
-  const [kind, setKind] = useState(initialCatId ? "sponsorNews" : "sterilisation"); const [catId, setCatId] = useState(initialCatId); const [subject, setSubject] = useState(""); const [body, setBody] = useState(""); const [photoLinks, setPhotoLinks] = useState("");
-  const templates: Record<string, { subject: string; body: string }> = { sterilisation: { subject: "Rappel de stérilisation", body: "Bonjour,\\n\\nNous vous rappelons que la stérilisation de {chat} est à prévoir. Merci de nous tenir informés de la date du rendez-vous.\\n\\nL'association Cha'Mania" }, icad: { subject: "Informations concernant ICAD", body: "Bonjour,\\n\\nNous vous contactons au sujet de l'identification ICAD de {chat}.\\n\\nL'association Cha'Mania" }, association: { subject: "Les nouvelles de l'association", body: "Bonjour,\\n\\nVoici les dernières nouvelles de l'association Cha'Mania…" }, sponsorNews: { subject: "Des nouvelles de {chat}", body: "Bonjour,\\n\\nVoici des nouvelles de {chat} :\\n\\n" } };
-  const chosen = snapshot.cats.find((cat) => cat.id === catId); const fill = (value: string) => value.replaceAll("{chat}", chosen?.name ?? "votre chat");
-  const selectTemplate = (value: string) => { setKind(value); setSubject(templates[value].subject); setBody(templates[value].body); };
-  useEffect(() => { selectTemplate(kind); }, [catId]);
-  const recipients = kind === "association" ? [...snapshot.families, ...snapshot.adopters].map((contact) => contact.email).filter(Boolean).join(",") : kind === "sponsorNews" ? snapshot.sponsorships.filter((sponsor) => sponsor.catId === catId && !sponsor.endDate).map((sponsor) => sponsor.email).filter(Boolean).join(",") : chosen ? [snapshot.families.find((family) => family.id === snapshot.catViews.find((cat) => cat.id === chosen.id)?.currentFamilyId)?.email, ...snapshot.adopters.filter((a) => snapshot.adoptions.some((ad) => ad.catId === chosen.id && ad.adopterId === a.id)).map((a) => a.email)].filter((email): email is string => Boolean(email)).join(",") : "";
-  const photos = photoLinks.split(/\n|,/).map((link) => link.trim()).filter(Boolean).join("\n");
+  const [kind, setKind] = useState(initialCatId ? "sponsorNews" : "sterilisation");
+  const [catId, setCatId] = useState(initialCatId);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [photoLinks, setPhotoLinks] = useState("");
+  const templates: Record<string, { subject: string; body: string }> = {
+    sterilisation: {
+      subject: "Rappel de stérilisation",
+      body: "Bonjour,\\n\\nNous vous rappelons que la stérilisation de {chat} est à prévoir. Merci de nous tenir informés de la date du rendez-vous.\\n\\nL'association Cha'Mania",
+    },
+    icad: {
+      subject: "Informations concernant ICAD",
+      body: "Bonjour,\\n\\nNous vous contactons au sujet de l'identification ICAD de {chat}.\\n\\nL'association Cha'Mania",
+    },
+    association: {
+      subject: "Les nouvelles de l'association",
+      body: "Bonjour,\\n\\nVoici les dernières nouvelles de l'association Cha'Mania…",
+    },
+    sponsorNews: {
+      subject: "Des nouvelles de {chat}",
+      body: "Bonjour,\\n\\nVoici des nouvelles de {chat} :\\n\\n",
+    },
+  };
+  const chosen = snapshot.cats.find((cat) => cat.id === catId);
+  const fill = (value: string) => value.replaceAll("{chat}", chosen?.name ?? "votre chat");
+  const selectTemplate = (value: string) => {
+    setKind(value);
+    setSubject(templates[value].subject);
+    setBody(templates[value].body);
+  };
+  useEffect(() => {
+    selectTemplate(kind);
+  }, [catId]);
+  const recipients =
+    kind === "association"
+      ? [...snapshot.families, ...snapshot.adopters]
+          .map((contact) => contact.email)
+          .filter(Boolean)
+          .join(",")
+      : kind === "sponsorNews"
+        ? snapshot.sponsorships
+            .filter((sponsor) => sponsor.catId === catId && !sponsor.endDate)
+            .map((sponsor) => sponsor.email)
+            .filter(Boolean)
+            .join(",")
+        : chosen
+          ? [
+              snapshot.families.find(
+                (family) =>
+                  family.id ===
+                  snapshot.catViews.find((cat) => cat.id === chosen.id)?.currentFamilyId,
+              )?.email,
+              ...snapshot.adopters
+                .filter((a) =>
+                  snapshot.adoptions.some((ad) => ad.catId === chosen.id && ad.adopterId === a.id),
+                )
+                .map((a) => a.email),
+            ]
+              .filter((email): email is string => Boolean(email))
+              .join(",")
+          : "";
+  const photos = photoLinks
+    .split(/\n|,/)
+    .map((link) => link.trim())
+    .filter(Boolean)
+    .join("\n");
   const message = `${fill(body)}${kind === "sponsorNews" && photos ? `\n\nPhotos de ${chosen?.name ?? "votre chat"} :\n${photos}` : ""}`;
   const mailto = `mailto:${recipients}?subject=${encodeURIComponent(fill(subject))}&body=${encodeURIComponent(message)}`;
-  return <div className="page-stack"><div className="section-heading"><p>Rappels de stérilisation, messages ICAD et nouvelles aux parrains</p></div><Panel title="Préparer un e-mail"><div className="form-grid"><Field label="Type de message"><select value={kind} onChange={(e) => selectTemplate(e.target.value)}><option value="sterilisation">Rappel stérilisation</option><option value="icad">Message ICAD</option><option value="association">Newsletter association</option><option value="sponsorNews">Nouvelles aux parrains</option></select></Field><Field label="Chat (si concerné)"><select value={catId} onChange={(e) => setCatId(e.target.value)}><option value="">Choisir</option>{snapshot.cats.map((cat) => <option value={cat.id} key={cat.id}>{cat.name}</option>)}</select></Field><Field label="Objet"><input value={fill(subject)} onChange={(e) => setSubject(e.target.value)}/></Field><Field label="Destinataires"><input readOnly value={recipients} placeholder="À saisir dans votre logiciel de messagerie"/></Field><Field label="Message" wide><textarea rows={10} value={fill(body)} onChange={(e) => setBody(e.target.value)}/></Field>{kind === "sponsorNews" && <Field label="Liens vers les photos" wide><textarea rows={2} value={photoLinks} onChange={(e) => setPhotoLinks(e.target.value)} placeholder="Un lien par ligne ou ajoutez les photos dans votre e-mail"/></Field>}</div><p>Les messages s'ouvrent dans votre logiciel de messagerie. Relisez le texte et ajoutez les destinataires avant l'envoi.</p><a className="button primary" href={mailto}>Ouvrir l'e-mail</a></Panel></div>;
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <p>Rappels de stérilisation, messages ICAD et nouvelles aux parrains</p>
+      </div>
+      <Panel title="Préparer un e-mail">
+        <div className="form-grid">
+          <Field label="Type de message">
+            <select value={kind} onChange={(e) => selectTemplate(e.target.value)}>
+              <option value="sterilisation">Rappel stérilisation</option>
+              <option value="icad">Message ICAD</option>
+              <option value="association">Newsletter association</option>
+              <option value="sponsorNews">Nouvelles aux parrains</option>
+            </select>
+          </Field>
+          <Field label="Chat (si concerné)">
+            <select value={catId} onChange={(e) => setCatId(e.target.value)}>
+              <option value="">Choisir</option>
+              {snapshot.cats.map((cat) => (
+                <option value={cat.id} key={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Objet">
+            <input value={fill(subject)} onChange={(e) => setSubject(e.target.value)} />
+          </Field>
+          <Field label="Destinataires">
+            <input
+              readOnly
+              value={recipients}
+              placeholder="À saisir dans votre logiciel de messagerie"
+            />
+          </Field>
+          <Field label="Message" wide>
+            <textarea rows={10} value={fill(body)} onChange={(e) => setBody(e.target.value)} />
+          </Field>
+          {kind === "sponsorNews" && (
+            <Field label="Liens vers les photos" wide>
+              <textarea
+                rows={2}
+                value={photoLinks}
+                onChange={(e) => setPhotoLinks(e.target.value)}
+                placeholder="Un lien par ligne ou ajoutez les photos dans votre e-mail"
+              />
+            </Field>
+          )}
+        </div>
+        <p>
+          Les messages s'ouvrent dans votre logiciel de messagerie. Relisez le texte et ajoutez les
+          destinataires avant l'envoi.
+        </p>
+        <a className="button primary" href={mailto}>
+          Ouvrir l'e-mail
+        </a>
+      </Panel>
+    </div>
+  );
 }
 
 function SponsorshipsPage({ snapshot, run }: PageProps) {
@@ -195,43 +887,443 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
   const [contactRef, setContactRef] = useState("manual");
   const [confirmStopId, setConfirmStopId] = useState<string | null>(null);
   const contacts = [
-    ...snapshot.families.map((person) => ({ ref: `family:${person.id}`, label: `Famille · ${person.label}`, firstName: person.firstName, lastName: person.lastName, email: person.email })),
-    ...snapshot.adopters.map((person) => ({ ref: `adopter:${person.id}`, label: `Adoptant · ${person.label}`, firstName: person.firstName, lastName: person.lastName, email: person.email }))
+    ...snapshot.families.map((person) => ({
+      ref: `family:${person.id}`,
+      label: `Famille · ${person.label}`,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      email: person.email,
+    })),
+    ...snapshot.adopters.map((person) => ({
+      ref: `adopter:${person.id}`,
+      label: `Adoptant · ${person.label}`,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      email: person.email,
+    })),
   ];
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const existing = contacts.find((contact) => contact.ref === contactRef);
-    void run(() => window.catApp.createSponsorship({ catId: String(data.get("catId")), firstName: existing?.firstName ?? String(data.get("firstName")), lastName: existing?.lastName ?? String(data.get("lastName")), email: existing?.email ?? String(data.get("email")), monthlyAmount: Number(data.get("monthlyAmount")), startDate: String(data.get("startDate")) }), "Parrainage enregistré.").then(() => setShowForm(false));
+    void run(
+      () =>
+        window.catApp.createSponsorship({
+          catId: String(data.get("catId")),
+          firstName: existing?.firstName ?? String(data.get("firstName")),
+          lastName: existing?.lastName ?? String(data.get("lastName")),
+          email: existing?.email ?? String(data.get("email")),
+          monthlyAmount: Number(data.get("monthlyAmount")),
+          startDate: String(data.get("startDate")),
+        }),
+      "Parrainage enregistré.",
+    ).then(() => setShowForm(false));
   };
   const active = snapshot.sponsorships.filter((item) => !item.endDate);
   const total = active.reduce((sum, item) => sum + item.monthlyAmount, 0);
-  const stop = (item: AppSnapshot["sponsorships"][number]) => void run(() => window.catApp.updateSponsorship({ ...item, endDate: localToday() }), "Parrainage arrêté.").then(() => setConfirmStopId(null));
-  return <div className="page-stack"><div className="section-heading"><div><p>{active.length} parrainages actifs · {total.toFixed(2)} € par mois</p><small className="sponsorship-subtitle">Suivi des parrains et des chats parrainés</small></div><button className="button primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Fermer" : "+ Nouveau parrainage"}</button></div>{showForm && <Panel title="Ajouter un parrainage"><form className="form-grid" onSubmit={submit}><Field label="Chat *"><select name="catId" required><option value="">Choisir</option>{snapshot.cats.filter((cat) => snapshot.catViews.find((view) => view.id === cat.id)?.status !== "DECEASED").map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}</select></Field><Field label="Montant mensuel (€) *"><input type="number" step="0.01" min="0.01" name="monthlyAmount" required/></Field><Field label="Parrain ou marraine déjà enregistré(e)"><select name="contactRef" value={contactRef} onChange={(event) => setContactRef(event.target.value)}><option value="manual">Saisir une nouvelle personne</option>{contacts.map((contact) => <option key={contact.ref} value={contact.ref}>{contact.label}</option>)}</select></Field>{contactRef === "manual" && <><Field label="Prénom *"><input name="firstName" required/></Field><Field label="Nom *"><input name="lastName" required/></Field><Field label="E-mail"><input type="email" name="email"/></Field></>}<Field label="Début *"><FrenchDateInput name="startDate" defaultValue={localToday()} required/></Field><div className="form-actions"><button className="button primary">Enregistrer le parrainage</button></div></form></Panel>}<Panel title={`Parrainages · ${snapshot.sponsorships.length}`}><div className="table-wrap"><table className="adoption-table sponsorship-table"><thead><tr><th>Chat</th><th>Parrain / marraine</th><th>Contact</th><th>Mensuel</th><th>Période</th><th>Action</th></tr></thead><tbody>{snapshot.sponsorships.map((item) => { const cat = snapshot.cats.find((candidate) => candidate.id === item.catId); return <tr key={item.id}><td>{cat ? <CatIdentity cat={cat}/> : "Chat inconnu"}</td><td><strong>{item.firstName} {item.lastName}</strong></td><td>{item.email || "—"}</td><td>{item.monthlyAmount.toFixed(2)} €</td><td>{formatDate(item.startDate)}{item.endDate ? ` → ${formatDate(item.endDate)}` : " · actif"}</td><td>{item.endDate ? <span className="care-status">Arrêté</span> : confirmStopId === item.id ? <div className="sponsorship-stop-confirm"><button className="button tiny" onClick={() => stop(item)}>Confirmer</button><button className="text-button" onClick={() => setConfirmStopId(null)}>Annuler</button></div> : <button className="button tiny sponsorship-stop" onClick={() => setConfirmStopId(item.id)}>Arrêter le parrainage</button>}</td></tr>; })}</tbody></table></div>{!snapshot.sponsorships.length && <Empty text="Aucun parrainage enregistré."/>}</Panel></div>;
+  const stop = (item: AppSnapshot["sponsorships"][number]) =>
+    void run(
+      () => window.catApp.updateSponsorship({ ...item, endDate: localToday() }),
+      "Parrainage arrêté.",
+    ).then(() => setConfirmStopId(null));
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <div>
+          <p>
+            {active.length} parrainages actifs · {total.toFixed(2)} € par mois
+          </p>
+          <small className="sponsorship-subtitle">Suivi des parrains et des chats parrainés</small>
+        </div>
+        <button className="button primary" onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Fermer" : "+ Nouveau parrainage"}
+        </button>
+      </div>
+      {showForm && (
+        <Panel title="Ajouter un parrainage">
+          <form className="form-grid" onSubmit={submit}>
+            <Field label="Chat *">
+              <select name="catId" required>
+                <option value="">Choisir</option>
+                {snapshot.cats
+                  .filter(
+                    (cat) =>
+                      snapshot.catViews.find((view) => view.id === cat.id)?.status !== "DECEASED",
+                  )
+                  .map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <Field label="Montant mensuel (€) *">
+              <input type="number" step="0.01" min="0.01" name="monthlyAmount" required />
+            </Field>
+            <Field label="Parrain ou marraine déjà enregistré(e)">
+              <select
+                name="contactRef"
+                value={contactRef}
+                onChange={(event) => setContactRef(event.target.value)}
+              >
+                <option value="manual">Saisir une nouvelle personne</option>
+                {contacts.map((contact) => (
+                  <option key={contact.ref} value={contact.ref}>
+                    {contact.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {contactRef === "manual" && (
+              <>
+                <Field label="Prénom *">
+                  <input name="firstName" required />
+                </Field>
+                <Field label="Nom *">
+                  <input name="lastName" required />
+                </Field>
+                <Field label="E-mail">
+                  <input type="email" name="email" />
+                </Field>
+              </>
+            )}
+            <Field label="Début *">
+              <FrenchDateInput name="startDate" defaultValue={localToday()} required />
+            </Field>
+            <div className="form-actions">
+              <button className="button primary">Enregistrer le parrainage</button>
+            </div>
+          </form>
+        </Panel>
+      )}
+      <Panel title={`Parrainages · ${snapshot.sponsorships.length}`}>
+        <div className="table-wrap">
+          <table className="adoption-table sponsorship-table">
+            <thead>
+              <tr>
+                <th>Chat</th>
+                <th>Parrain / marraine</th>
+                <th>Contact</th>
+                <th>Mensuel</th>
+                <th>Période</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshot.sponsorships.map((item) => {
+                const cat = snapshot.cats.find((candidate) => candidate.id === item.catId);
+                return (
+                  <tr key={item.id}>
+                    <td>{cat ? <CatIdentity cat={cat} /> : "Chat inconnu"}</td>
+                    <td>
+                      <strong>
+                        {item.firstName} {item.lastName}
+                      </strong>
+                    </td>
+                    <td>{item.email || "—"}</td>
+                    <td>{item.monthlyAmount.toFixed(2)} €</td>
+                    <td>
+                      {formatDate(item.startDate)}
+                      {item.endDate ? ` → ${formatDate(item.endDate)}` : " · actif"}
+                    </td>
+                    <td>
+                      {item.endDate ? (
+                        <span className="care-status">Arrêté</span>
+                      ) : confirmStopId === item.id ? (
+                        <div className="sponsorship-stop-confirm">
+                          <button className="button tiny" onClick={() => stop(item)}>
+                            Confirmer
+                          </button>
+                          <button className="text-button" onClick={() => setConfirmStopId(null)}>
+                            Annuler
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="button tiny sponsorship-stop"
+                          onClick={() => setConfirmStopId(item.id)}
+                        >
+                          Arrêter le parrainage
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!snapshot.sponsorships.length && <Empty text="Aucun parrainage enregistré." />}
+      </Panel>
+    </div>
+  );
 }
 
 function CatsPage({ snapshot, run }: PageProps) {
-  const [query, setQuery] = useState(""); const [status, setStatus] = useState<CatStatus | "ALL">("ALL");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<CatStatus | "ALL">("ALL");
   const [sterilization, setSterilization] = useState<SterilizationStatus | "ALL">("ALL");
-  const [sortBy, setSortBy] = useState<CatSortField>("intakeDate"); const [direction, setDirection] = useState<SortDirection>("desc");
-  const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(25); const [showForm, setShowForm] = useState(false);
+  const [sortBy, setSortBy] = useState<CatSortField>("intakeDate");
+  const [direction, setDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [showForm, setShowForm] = useState(false);
   useEffect(() => setPage(1), [query, status, sterilization, sortBy, direction, pageSize]);
-  const table = buildCatTable(snapshot.catViews, snapshot.families, { query, status, sterilization, sortBy, direction, page, pageSize });
-  return <div className="page-stack">
-    <div className="registry-toolbar"><div className="search"><span>⌕</span><input placeholder="Nom, ICAD, famille ou notes…" value={query} onChange={(event) => setQuery(event.target.value)}/></div><select value={status} onChange={(event) => setStatus(event.target.value as CatStatus | "ALL")}><option value="ALL">Tous les statuts</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={sterilization} onChange={(event) => setSterilization(event.target.value as SterilizationStatus | "ALL")}><option value="ALL">Toute stérilisation</option><option value="DONE">Stérilisé</option><option value="TODO">À stériliser</option><option value="UNKNOWN">Non renseigné</option></select><button className="button primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Fermer" : "+ Nouveau chat"}</button></div>
-    <div className="sort-toolbar"><strong>{table.total} chat{table.total === 1 ? "" : "s"}</strong><span>sur {snapshot.cats.length}</span><label>Trier par <select value={sortBy} onChange={(event) => setSortBy(event.target.value as CatSortField)}><option value="intakeDate">Date d'arrivée</option><option value="birthDate">Date de naissance</option><option value="updatedAt">Dernière modification</option><option value="name">Nom</option></select></label><button className="sort-direction" onClick={() => setDirection(direction === "asc" ? "desc" : "asc")}>{direction === "asc" ? "↑ Croissant" : "↓ Décroissant"}</button></div>
-    {showForm && <CatForm run={run} done={() => setShowForm(false)}/>}<section className="registry-table-panel"><div className="table-wrap"><table className="registry-table"><thead><tr><th>Chat</th><th>Statut</th><th>Profil</th><th>Stérilisation</th><th>Adoptable</th><th>Arrivée</th><th>Lieu actuel</th></tr></thead><tbody>{table.rows.map((cat) => <tr key={cat.id} className="clickable-row" onClick={() => openCat(cat.id)}><td><div className="cat-cell"><div className="table-avatar">{cat.name.slice(0, 1).toUpperCase()}</div><CatIdentity cat={cat}/></div></td><td><span className={`status ${cat.status.toLowerCase()}`}>{STATUS_LABEL[cat.status]}</span></td><td>{PROFILE_LABEL[cat.profile]}</td><td><span className={`sterilization ${cat.sterilizationStatus.toLowerCase()}`}>{cat.sterilizationStatus === "DONE" ? "Oui" : cat.sterilizationStatus === "TODO" ? "À faire" : "Inconnu"}</span></td><td><Adoptability cat={cat}/></td><td>{formatDate(cat.intakeDate)}</td><td><CurrentLocation cat={cat} snapshot={snapshot}/></td></tr>)}</tbody></table></div>{!table.rows.length && <Empty text="Aucun chat ne correspond à ces filtres."/>}<div className="pagination"><label>Afficher <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label><span>Page {table.page} sur {table.pageCount}</span><div><button disabled={table.page <= 1} onClick={() => setPage(table.page - 1)}>← Précédent</button><button disabled={table.page >= table.pageCount} onClick={() => setPage(table.page + 1)}>Suivant →</button></div></div></section>
-    </div>;
+  const table = buildCatTable(snapshot.catViews, snapshot.families, {
+    query,
+    status,
+    sterilization,
+    sortBy,
+    direction,
+    page,
+    pageSize,
+  });
+  return (
+    <div className="page-stack">
+      <div className="registry-toolbar">
+        <div className="search">
+          <span>⌕</span>
+          <input
+            placeholder="Nom, ICAD, famille ou notes…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <select
+          value={status}
+          onChange={(event) => setStatus(event.target.value as CatStatus | "ALL")}
+        >
+          <option value="ALL">Tous les statuts</option>
+          {Object.entries(STATUS_LABEL).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sterilization}
+          onChange={(event) => setSterilization(event.target.value as SterilizationStatus | "ALL")}
+        >
+          <option value="ALL">Toute stérilisation</option>
+          <option value="DONE">Stérilisé</option>
+          <option value="TODO">À stériliser</option>
+          <option value="UNKNOWN">Non renseigné</option>
+        </select>
+        <button className="button primary" onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Fermer" : "+ Nouveau chat"}
+        </button>
+      </div>
+      <div className="sort-toolbar">
+        <strong>
+          {table.total} chat{table.total === 1 ? "" : "s"}
+        </strong>
+        <span>sur {snapshot.cats.length}</span>
+        <label>
+          Trier par{" "}
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value as CatSortField)}
+          >
+            <option value="intakeDate">Date d'arrivée</option>
+            <option value="birthDate">Date de naissance</option>
+            <option value="updatedAt">Dernière modification</option>
+            <option value="name">Nom</option>
+          </select>
+        </label>
+        <button
+          className="sort-direction"
+          onClick={() => setDirection(direction === "asc" ? "desc" : "asc")}
+        >
+          {direction === "asc" ? "↑ Croissant" : "↓ Décroissant"}
+        </button>
+      </div>
+      {showForm && <CatForm run={run} done={() => setShowForm(false)} />}
+      <section className="registry-table-panel">
+        <div className="table-wrap">
+          <table className="registry-table">
+            <thead>
+              <tr>
+                <th>Chat</th>
+                <th>Statut</th>
+                <th>Profil</th>
+                <th>Stérilisation</th>
+                <th>Adoptable</th>
+                <th>Arrivée</th>
+                <th>Lieu actuel</th>
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((cat) => (
+                <tr key={cat.id} className="clickable-row" onClick={() => openCat(cat.id)}>
+                  <td>
+                    <div className="cat-cell">
+                      <div className="table-avatar">{cat.name.slice(0, 1).toUpperCase()}</div>
+                      <CatIdentity cat={cat} />
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`status ${cat.status.toLowerCase()}`}>
+                      {STATUS_LABEL[cat.status]}
+                    </span>
+                  </td>
+                  <td>{PROFILE_LABEL[cat.profile]}</td>
+                  <td>
+                    <span className={`sterilization ${cat.sterilizationStatus.toLowerCase()}`}>
+                      {cat.sterilizationStatus === "DONE"
+                        ? "Oui"
+                        : cat.sterilizationStatus === "TODO"
+                          ? "À faire"
+                          : "Inconnu"}
+                    </span>
+                  </td>
+                  <td>
+                    <Adoptability cat={cat} />
+                  </td>
+                  <td>{formatDate(cat.intakeDate)}</td>
+                  <td>
+                    <CurrentLocation cat={cat} snapshot={snapshot} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!table.rows.length && <Empty text="Aucun chat ne correspond à ces filtres." />}
+        <div className="pagination">
+          <label>
+            Afficher{" "}
+            <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+          <span>
+            Page {table.page} sur {table.pageCount}
+          </span>
+          <div>
+            <button disabled={table.page <= 1} onClick={() => setPage(table.page - 1)}>
+              ← Précédent
+            </button>
+            <button
+              disabled={table.page >= table.pageCount}
+              onClick={() => setPage(table.page + 1)}
+            >
+              Suivant →
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
 }
 
-function HealthIssuePage({ catId, snapshot, run, setSnapshot, setNotice, back }: PageProps & { catId: string; setSnapshot: (snapshot: AppSnapshot) => void; setNotice: (notice: Notice | null) => void; back: () => void }) {
+function HealthIssuePage({
+  catId,
+  snapshot,
+  run,
+  setSnapshot,
+  setNotice,
+  back,
+}: PageProps & {
+  catId: string;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  setNotice: (notice: Notice | null) => void;
+  back: () => void;
+}) {
   const cat = snapshot.catViews.find((candidate) => candidate.id === catId)!;
   const [exposures, setExposures] = useState<HealthExposure[]>([]);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); try { const result = await window.catApp.declareSickness({ catId, disease: String(data.get("disease")), declaredAt: String(data.get("declaredAt")), lookbackDays: Number(data.get("lookbackDays")), notes: String(data.get("notes")) }); setSnapshot(result.snapshot); setExposures(result.exposures); setNotice({ kind: "success", text: `${result.exposures.length} contact(s) potentiel(s) retrouvé(s).` }); } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); } };
-  return <div className="page-stack health-issue-page"><div className="section-heading"><div><p>Suivi sanitaire de {cat.name} et recherche des chats potentiellement exposés.</p></div><button className="button secondary" onClick={back}>← Retour aux rappels</button></div><Panel title={`Déclarer un problème de santé · ${cat.name}`}><form className="form-grid" onSubmit={submit}><Field label="Maladie ou suspicion"><input name="disease" required autoFocus/></Field><Field label="Date"><FrenchDateInput name="declaredAt" required defaultValue={localToday()}/></Field><Field label="Recherche de contacts (jours)"><input name="lookbackDays" type="number" min="0" max="365" defaultValue="14"/></Field><Field label="Notes" wide><input name="notes"/></Field><div className="form-actions"><button className="button primary">Déclarer et rechercher les contacts</button></div></form><p className="panel-intro">La recherche utilise les lieux et périodes de présence enregistrés pour ce chat.</p></Panel>{exposures.length > 0 && <Panel title="Chats ayant partagé le même lieu"><div className="exposure-box">{exposures.map((item, index) => <div key={`${item.catId}-${index}`}><b>{snapshot.cats.find((candidate) => candidate.id === item.catId)?.name}</b><span>{item.locationLabel} · {formatDate(item.overlapStart)}–{formatDate(item.overlapEnd)}</span></div>)}</div></Panel>}</div>;
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    try {
+      const result = await window.catApp.declareSickness({
+        catId,
+        disease: String(data.get("disease")),
+        declaredAt: String(data.get("declaredAt")),
+        lookbackDays: Number(data.get("lookbackDays")),
+        notes: String(data.get("notes")),
+      });
+      setSnapshot(result.snapshot);
+      setExposures(result.exposures);
+      setNotice({
+        kind: "success",
+        text: `${result.exposures.length} contact(s) potentiel(s) retrouvé(s).`,
+      });
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    }
+  };
+  return (
+    <div className="page-stack health-issue-page">
+      <div className="section-heading">
+        <div>
+          <p>Suivi sanitaire de {cat.name} et recherche des chats potentiellement exposés.</p>
+        </div>
+        <button className="button secondary" onClick={back}>
+          ← Retour aux rappels
+        </button>
+      </div>
+      <Panel title={`Déclarer un problème de santé · ${cat.name}`}>
+        <form className="form-grid" onSubmit={submit}>
+          <Field label="Maladie ou suspicion">
+            <input name="disease" required autoFocus />
+          </Field>
+          <Field label="Date">
+            <FrenchDateInput name="declaredAt" required defaultValue={localToday()} />
+          </Field>
+          <Field label="Recherche de contacts (jours)">
+            <input name="lookbackDays" type="number" min="0" max="365" defaultValue="14" />
+          </Field>
+          <Field label="Notes" wide>
+            <input name="notes" />
+          </Field>
+          <div className="form-actions">
+            <button className="button primary">Déclarer et rechercher les contacts</button>
+          </div>
+        </form>
+        <p className="panel-intro">
+          La recherche utilise les lieux et périodes de présence enregistrés pour ce chat.
+        </p>
+      </Panel>
+      {exposures.length > 0 && (
+        <Panel title="Chats ayant partagé le même lieu">
+          <div className="exposure-box">
+            {exposures.map((item, index) => (
+              <div key={`${item.catId}-${index}`}>
+                <b>{snapshot.cats.find((candidate) => candidate.id === item.catId)?.name}</b>
+                <span>
+                  {item.locationLabel} · {formatDate(item.overlapStart)}–
+                  {formatDate(item.overlapEnd)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+    </div>
+  );
 }
 
-function CatDetail({ catId, snapshot, close, goHealth, run, setSnapshot, setNotice, setEmailCatId, setPage }: PageProps & { catId: string; close: () => void; goHealth: () => void; setSnapshot: (snapshot: AppSnapshot) => void; setNotice: (notice: Notice | null) => void; setEmailCatId: (catId: string) => void; setPage: (page: Page) => void }) {
+function CatDetail({
+  catId,
+  snapshot,
+  close,
+  goHealth,
+  run,
+  setSnapshot,
+  setNotice,
+  setEmailCatId,
+  setPage,
+}: PageProps & {
+  catId: string;
+  close: () => void;
+  goHealth: () => void;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  setNotice: (notice: Notice | null) => void;
+  setEmailCatId: (catId: string) => void;
+  setPage: (page: Page) => void;
+}) {
   const cat = snapshot.catViews.find((candidate) => candidate.id === catId)!;
   const [photo, setPhoto] = useState(cat.photo ?? "");
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
@@ -242,266 +1334,2870 @@ function CatDetail({ catId, snapshot, close, goHealth, run, setSnapshot, setNoti
   const [showHistoryForm, setShowHistoryForm] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [historyWidth, setHistoryWidth] = useState(33);
-  const events = snapshot.catEvents.filter((event) => event.catId === catId && !["ADOPTED", "RETURNED"].includes(event.type)).map((event) => ({ id: event.id, deletable: event.type === "NOTE_ADDED", date: event.date, title: event.type === "NOTE_ADDED" ? event.label || "Événement" : eventLabel(event.type), notes: event.notes }));
-  const placements = snapshot.fosterPlacements.filter((item) => item.catId === catId).map((item) => ({ id: undefined, deletable: false, date: item.startDate, title: `Accueil · ${snapshot.families.find((family) => family.id === item.familyId)?.label ?? "Famille"}`, notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.overrideReason ? ` · Dérogation: ${item.overrideReason}` : ""}` }));
-  const adoptions = snapshot.adoptions.filter((item) => item.catId === catId).map((item) => ({ id: undefined, deletable: false, date: item.adoptionDate, title: `Adoption · ${snapshot.adopters.find((adopter) => adopter.id === item.adopterId)?.label ?? "Adoptant"}`, notes: `${item.status === "ACTIVE" ? "Active" : `Retour le ${formatDate(item.endedAt)}`}${item.partner ? ` · ${item.partner}` : ""}` }));
-  const stays = snapshot.refugeStays.filter((item) => item.catId === catId).map((item) => ({ id: undefined, deletable: false, date: item.startDate, title: `Refuge · ${snapshot.refugeZones.find((zone) => zone.id === item.zoneId)?.name ?? "Zone"}`, notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.reason ? ` · ${item.reason}` : ""}` }));
-  const taskHistory = snapshot.tasks.filter((task) => task.catId === catId && task.status !== "CANCELLED").map((task) => ({ id: undefined, deletable: false, date: task.status === "DONE" ? task.completedAt || task.dueDate : task.dueDate, title: task.status === "DONE" ? `${careTypeLabel(task.type)} · effectué` : careTypeLabel(task.type), notes: task.notes }));
-  const history = [...events, ...placements, ...adoptions, ...stays, ...taskHistory].sort((a, b) => b.date.localeCompare(a.date));
-  const reminderDateFor = (kind: "vaccin" | "vermifuge" | "anti-puce" | "médicament") => snapshot.tasks.filter((task) => task.catId === catId && task.status === "OPEN" && (kind === "anti-puce" ? task.type === "ANTI_PUCE" || task.type.toLowerCase().includes(kind) : task.type.toLowerCase().includes(kind))).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.dueDate;
-  const saveCatProfile = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const yesNo = (key: string) => String(data.get(key)) === "unknown" ? null : String(data.get(key)) === "yes"; void cropPhotoToSquare(photo, cropX, cropY, cropScale).then((savedPhoto) => run(() => window.catApp.updateCat({ id: catId, description: String(data.get("description")), photo: savedPhoto, okWithCats: yesNo("cats"), okWithDogs: yesNo("dogs"), okWithChildren: yesNo("children"), medications: String(data.get("medications")), vaccines: String(data.get("vaccines")), deworming: String(data.get("deworming")), antiFlea: String(data.get("antiFlea")), adoptionEligibility: String(data.get("eligibility")) as AdoptionEligibility, adoptionBlockedReason: String(data.get("reason")) }), "Fiche du chat mise à jour.")); };
-  const readPhoto = (event: ChangeEvent<HTMLInputElement>) => { const file = event.currentTarget.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) { setNotice({ kind: "error", text: "Choisissez un fichier image." }); return; } if (file.size > 5 * 1024 * 1024) { setNotice({ kind: "error", text: "La photo doit faire moins de 5 Mo." }); return; } const reader = new FileReader(); reader.onload = () => { if (typeof reader.result === "string") { setPendingPhoto(reader.result); setCropX(50); setCropY(50); setCropOpen(true); } }; reader.onerror = () => setNotice({ kind: "error", text: "La photo n'a pas pu être lue." }); reader.readAsDataURL(file); };
-  const recordHistory = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const nextDate = String(data.get("nextDate")); void run(() => window.catApp.recordCatHistory({ catId, date: String(data.get("date")), title: String(data.get("title")), notes: String(data.get("notes")), nextDate: nextDate || undefined }), "Événement ajouté.").then(() => setShowHistoryForm(false)); };
-  const hasActiveSupporter = snapshot.sponsorships.some((item) => item.catId === catId && !item.endDate);
+  const events = snapshot.catEvents
+    .filter((event) => event.catId === catId && !["ADOPTED", "RETURNED"].includes(event.type))
+    .map((event) => ({
+      id: event.id,
+      deletable: event.type === "NOTE_ADDED",
+      date: event.date,
+      title: event.type === "NOTE_ADDED" ? event.label || "Événement" : eventLabel(event.type),
+      notes: event.notes,
+    }));
+  const placements = snapshot.fosterPlacements
+    .filter((item) => item.catId === catId)
+    .map((item) => ({
+      id: undefined,
+      deletable: false,
+      date: item.startDate,
+      title: `Accueil · ${snapshot.families.find((family) => family.id === item.familyId)?.label ?? "Famille"}`,
+      notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.overrideReason ? ` · Dérogation: ${item.overrideReason}` : ""}`,
+    }));
+  const adoptions = snapshot.adoptions
+    .filter((item) => item.catId === catId)
+    .map((item) => ({
+      id: undefined,
+      deletable: false,
+      date: item.adoptionDate,
+      title: `Adoption · ${snapshot.adopters.find((adopter) => adopter.id === item.adopterId)?.label ?? "Adoptant"}`,
+      notes: `${item.status === "ACTIVE" ? "Active" : `Retour le ${formatDate(item.endedAt)}`}${item.partner ? ` · ${item.partner}` : ""}`,
+    }));
+  const stays = snapshot.refugeStays
+    .filter((item) => item.catId === catId)
+    .map((item) => ({
+      id: undefined,
+      deletable: false,
+      date: item.startDate,
+      title: `Refuge · ${snapshot.refugeZones.find((zone) => zone.id === item.zoneId)?.name ?? "Zone"}`,
+      notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.reason ? ` · ${item.reason}` : ""}`,
+    }));
+  const taskHistory = snapshot.tasks
+    .filter((task) => task.catId === catId && task.status !== "CANCELLED")
+    .map((task) => ({
+      id: undefined,
+      deletable: false,
+      date: task.status === "DONE" ? task.completedAt || task.dueDate : task.dueDate,
+      title:
+        task.status === "DONE"
+          ? `${careTypeLabel(task.type)} · effectué`
+          : careTypeLabel(task.type),
+      notes: task.notes,
+    }));
+  const history = [...events, ...placements, ...adoptions, ...stays, ...taskHistory].sort((a, b) =>
+    b.date.localeCompare(a.date),
+  );
+  const reminderDateFor = (kind: "vaccin" | "vermifuge" | "anti-puce" | "médicament") =>
+    snapshot.tasks
+      .filter(
+        (task) =>
+          task.catId === catId &&
+          task.status === "OPEN" &&
+          (kind === "anti-puce"
+            ? task.type === "ANTI_PUCE" || task.type.toLowerCase().includes(kind)
+            : task.type.toLowerCase().includes(kind)),
+      )
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.dueDate;
+  const saveCatProfile = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const yesNo = (key: string) =>
+      String(data.get(key)) === "unknown" ? null : String(data.get(key)) === "yes";
+    void cropPhotoToSquare(photo, cropX, cropY, cropScale).then((savedPhoto) =>
+      run(
+        () =>
+          window.catApp.updateCat({
+            id: catId,
+            description: String(data.get("description")),
+            photo: savedPhoto,
+            okWithCats: yesNo("cats"),
+            okWithDogs: yesNo("dogs"),
+            okWithChildren: yesNo("children"),
+            medications: String(data.get("medications")),
+            vaccines: String(data.get("vaccines")),
+            deworming: String(data.get("deworming")),
+            antiFlea: String(data.get("antiFlea")),
+            adoptionEligibility: String(data.get("eligibility")) as AdoptionEligibility,
+            adoptionBlockedReason: String(data.get("reason")),
+          }),
+        "Fiche du chat mise à jour.",
+      ),
+    );
+  };
+  const readPhoto = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) {
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setNotice({ kind: "error", text: "Choisissez un fichier image." });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setNotice({ kind: "error", text: "La photo doit faire moins de 5 Mo." });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setPendingPhoto(reader.result);
+        setCropX(50);
+        setCropY(50);
+        setCropOpen(true);
+      }
+    };
+    reader.onerror = () => setNotice({ kind: "error", text: "La photo n'a pas pu être lue." });
+    reader.readAsDataURL(file);
+  };
+  const recordHistory = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const nextDate = String(data.get("nextDate"));
+    void run(
+      () =>
+        window.catApp.recordCatHistory({
+          catId,
+          date: String(data.get("date")),
+          title: String(data.get("title")),
+          notes: String(data.get("notes")),
+          nextDate: nextDate || undefined,
+        }),
+      "Événement ajouté.",
+    ).then(() => setShowHistoryForm(false));
+  };
+  const hasActiveSupporter = snapshot.sponsorships.some(
+    (item) => item.catId === catId && !item.endDate,
+  );
   const openHealthPage = () => goHealth();
-  return <div className="drawer-backdrop" onMouseDown={close}><aside className="drawer cat-detail-dialog" onMouseDown={(event) => event.stopPropagation()}><header className="cat-detail-header"><div className="detail-title"><div className="table-avatar large cat-detail-avatar">{photo ? <img src={photo} alt={`Photo de ${cat.name}`} style={{ objectPosition: `${cropX}% ${cropY}%` }}/> : cat.name.slice(0, 1)}</div><div><span className={`status ${cat.status.toLowerCase()}`}>{STATUS_LABEL[cat.status]}</span><h2 className="cat-name-icad">{cat.name}{cat.identificationNumber && <>- {cat.identificationNumber}<button type="button" className="copy-icad" title="Copier le numéro ICAD" aria-label="Copier le numéro ICAD" onClick={() => void navigator.clipboard.writeText(cat.identificationNumber)}>▢</button></>}</h2><p>{cat.currentLocationLabel || "Sans lieu actuel"} · {PROFILE_LABEL[cat.profile]}</p></div></div><div className="detail-header-actions"><button className="button secondary" onClick={() => setShowHistoryForm(!showHistoryForm)}>{showHistoryForm ? "Fermer les événements" : "+ Événement"}</button><button className="button primary" disabled={!hasActiveSupporter} title={!hasActiveSupporter ? "Ce chat n’a pas de parrain actif" : undefined} onClick={() => { setEmailCatId(catId); close(); setPage("email"); }}>✉ Donner des nouvelles</button><div className="cat-action-menu-wrap"><button className="button secondary" aria-expanded={showActionMenu} onClick={() => setShowActionMenu(!showActionMenu)}>Actions ▾</button>{showActionMenu && <div className="cat-action-menu"><button onClick={() => { setShowActionMenu(false); openHealthPage(); }}>Déclarer un problème de santé</button>{cat.status !== "DECEASED" && <CatDeathAction catId={catId} catName={cat.name} setSnapshot={setSnapshot} onStart={() => setShowActionMenu(false)}/>}</div>}</div><button className="drawer-close" onClick={close} aria-label="Fermer">×</button></div></header>
-    <p className="cat-birth-date">Né(e) le {formatDate(cat.birthDate)}</p>
-    <div className="cat-detail-columns" style={{ gridTemplateColumns: `minmax(0, ${100 - historyWidth}fr) 8px minmax(0, ${historyWidth}fr)` }}><div className="cat-detail-main">
-    <Panel title="Profil et besoins"><form className="form-grid cat-detail-form" onSubmit={saveCatProfile}><Field label="Description" wide><textarea name="description" rows={2} defaultValue={cat.description} placeholder="Caractère, habitudes, conseils"/></Field><Field label="Photo depuis votre ordinateur" wide><input type="file" accept="image/*" onChange={readPhoto}/>{photo && <button type="button" className="button secondary crop-open-button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setCropOpen(true); }}>Recadrer la photo</button>}</Field><Field label="Adoptabilité"><select name="eligibility" defaultValue={cat.adoptionEligibility}><option value="ELIGIBLE">Adoptable</option><option value="ON_HOLD">En attente</option><option value="INELIGIBLE">Non adoptable</option></select></Field><Field label="Motif"><input name="reason" defaultValue={cat.adoptionBlockedReason} placeholder="Motif si nécessaire"/></Field>{([["cats","Avec les chats",cat.okWithCats],["dogs","Avec les chiens",cat.okWithDogs],["children","Avec les enfants",cat.okWithChildren]] as const).map(([key,label,value]) => <CompatibilityChoices key={key} name={key} label={label} value={value}/>)}<input type="hidden" name="medications" value={cat.medications || ""}/><input type="hidden" name="vaccines" value={cat.vaccines || ""}/><input type="hidden" name="deworming" value={cat.deworming || ""}/><input type="hidden" name="antiFlea" value={cat.antiFlea || ""}/><div className="form-actions"><button className="button primary">Enregistrer la fiche</button></div></form></Panel><Panel title="Santé et soins" action={<HealthAction catId={catId} status={cat.healthStatus} run={run}/> }><div className="health-care-grid"><TreatmentAction label="Médicaments" field="medications" value={cat.medications || ""} schedule={cat.medicationSchedule || ""} endDate={cat.medicationEndDate || ""} reminderDate={reminderDateFor("médicament")} catId={catId} setSnapshot={setSnapshot}/><TreatmentAction label="Vaccins" field="vaccines" value={cat.vaccines || ""} reminderDate={reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")} catId={catId} setSnapshot={setSnapshot}/><TreatmentAction label="Vermifuge" field="deworming" value={cat.deworming || ""} reminderDate={reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")} catId={catId} setSnapshot={setSnapshot}/><TreatmentAction label="Anti-puce" field="antiFlea" value={cat.antiFlea || ""} reminderDate={reminderDateFor("anti-puce") || dateFromHealthMessage(cat.antiFlea || "")} catId={catId} setSnapshot={setSnapshot}/></div></Panel>
-    </div><div className="column-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionner les événements" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.buttons !== 1) return; const bounds = event.currentTarget.parentElement!.getBoundingClientRect(); setHistoryWidth(Math.max(25, Math.min(50, Math.round((bounds.right - event.clientX) / bounds.width * 100)))); }}/><aside className="cat-history-sidebar"><div className={showHistoryForm ? "cat-history-content with-event-form" : "cat-history-content"}>{showHistoryForm && <Panel title="Ajouter un événement"><form className="form-grid" onSubmit={recordHistory}><Field label="Date"><FrenchDateInput name="date" defaultValue={localToday()} required/></Field><Field label="Événement / action"><input name="title" required placeholder="Visite vétérinaire, comportement…"/></Field><Field label="Prochaine échéance (facultatif)"><FrenchDateInput name="nextDate"/></Field><Field label="Notes" wide><textarea name="notes" rows={2} placeholder="Ce qui s’est passé, résultat, détails utiles…"/></Field><div className="form-actions"><button className="button secondary">Ajouter l’événement</button></div></form><p className="panel-intro">Une prochaine échéance créera aussi un rappel dans les événements.</p></Panel>}<Panel title="Événements"><div className="detail-history">{history.map((item, index) => <div key={`${item.date}-${item.title}-${index}`}><time>{formatDate(item.date)}</time><span/><p><strong>{item.title}</strong><small>{item.notes || "—"}</small></p>{item.deletable && item.id && <button className="icon-button danger" title="Supprimer cet événement" aria-label="Supprimer cet événement" onClick={() => { if (window.confirm("Supprimer cet événement ?")) void run(() => window.catApp.deleteCatEvent(item.id!), "Événement supprimé."); }}>×</button>}</div>) }</div></Panel></div></aside></div>{cropOpen && <PhotoCropDialog photo={pendingPhoto ?? photo} initialX={cropX} initialY={cropY} initialScale={cropScale} cancel={() => { setCropOpen(false); setPendingPhoto(null); }} apply={(x, y, scale) => { if (pendingPhoto) setPhoto(pendingPhoto); setPendingPhoto(null); setCropX(x); setCropY(y); setCropScale(scale); setCropOpen(false); }}/>}</aside></div>;
+  return (
+    <div className="drawer-backdrop" onMouseDown={close}>
+      <aside className="drawer cat-detail-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="cat-detail-header">
+          <div className="detail-title">
+            <div className="table-avatar large cat-detail-avatar">
+              {photo ? (
+                <img
+                  src={photo}
+                  alt={`Photo de ${cat.name}`}
+                  style={{ objectPosition: `${cropX}% ${cropY}%` }}
+                />
+              ) : (
+                cat.name.slice(0, 1)
+              )}
+            </div>
+            <div>
+              <span className={`status ${cat.status.toLowerCase()}`}>
+                {STATUS_LABEL[cat.status]}
+              </span>
+              <h2 className="cat-name-icad">
+                {cat.name}
+                {cat.identificationNumber && (
+                  <>
+                    - {cat.identificationNumber}
+                    <button
+                      type="button"
+                      className="copy-icad"
+                      title="Copier le numéro ICAD"
+                      aria-label="Copier le numéro ICAD"
+                      onClick={() => void navigator.clipboard.writeText(cat.identificationNumber)}
+                    >
+                      ▢
+                    </button>
+                  </>
+                )}
+              </h2>
+              <p>
+                {cat.currentLocationLabel || "Sans lieu actuel"} · {PROFILE_LABEL[cat.profile]}
+              </p>
+            </div>
+          </div>
+          <div className="detail-header-actions">
+            <button
+              className="button secondary"
+              onClick={() => setShowHistoryForm(!showHistoryForm)}
+            >
+              {showHistoryForm ? "Fermer les événements" : "+ Événement"}
+            </button>
+            <button
+              className="button primary"
+              disabled={!hasActiveSupporter}
+              title={!hasActiveSupporter ? "Ce chat n’a pas de parrain actif" : undefined}
+              onClick={() => {
+                setEmailCatId(catId);
+                close();
+                setPage("email");
+              }}
+            >
+              ✉ Donner des nouvelles
+            </button>
+            <div className="cat-action-menu-wrap">
+              <button
+                className="button secondary"
+                aria-expanded={showActionMenu}
+                onClick={() => setShowActionMenu(!showActionMenu)}
+              >
+                Actions ▾
+              </button>
+              {showActionMenu && (
+                <div className="cat-action-menu">
+                  <button
+                    onClick={() => {
+                      setShowActionMenu(false);
+                      openHealthPage();
+                    }}
+                  >
+                    Déclarer un problème de santé
+                  </button>
+                  {cat.status !== "DECEASED" && (
+                    <CatDeathAction
+                      catId={catId}
+                      catName={cat.name}
+                      setSnapshot={setSnapshot}
+                      onStart={() => setShowActionMenu(false)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            <button className="drawer-close" onClick={close} aria-label="Fermer">
+              ×
+            </button>
+          </div>
+        </header>
+        <p className="cat-birth-date">Né(e) le {formatDate(cat.birthDate)}</p>
+        <div
+          className="cat-detail-columns"
+          style={{
+            gridTemplateColumns: `minmax(0, ${100 - historyWidth}fr) 8px minmax(0, ${historyWidth}fr)`,
+          }}
+        >
+          <div className="cat-detail-main">
+            <Panel title="Profil et besoins">
+              <form className="form-grid cat-detail-form" onSubmit={saveCatProfile}>
+                <Field label="Description" wide>
+                  <textarea
+                    name="description"
+                    rows={2}
+                    defaultValue={cat.description}
+                    placeholder="Caractère, habitudes, conseils"
+                  />
+                </Field>
+                <Field label="Photo depuis votre ordinateur" wide>
+                  <input type="file" accept="image/*" onChange={readPhoto} />
+                  {photo && (
+                    <button
+                      type="button"
+                      className="button secondary crop-open-button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setCropOpen(true);
+                      }}
+                    >
+                      Recadrer la photo
+                    </button>
+                  )}
+                </Field>
+                <Field label="Adoptabilité">
+                  <select name="eligibility" defaultValue={cat.adoptionEligibility}>
+                    <option value="ELIGIBLE">Adoptable</option>
+                    <option value="ON_HOLD">En attente</option>
+                    <option value="INELIGIBLE">Non adoptable</option>
+                  </select>
+                </Field>
+                <Field label="Motif">
+                  <input
+                    name="reason"
+                    defaultValue={cat.adoptionBlockedReason}
+                    placeholder="Motif si nécessaire"
+                  />
+                </Field>
+                {(
+                  [
+                    ["cats", "Avec les chats", cat.okWithCats],
+                    ["dogs", "Avec les chiens", cat.okWithDogs],
+                    ["children", "Avec les enfants", cat.okWithChildren],
+                  ] as const
+                ).map(([key, label, value]) => (
+                  <CompatibilityChoices key={key} name={key} label={label} value={value} />
+                ))}
+                <input type="hidden" name="medications" value={cat.medications || ""} />
+                <input type="hidden" name="vaccines" value={cat.vaccines || ""} />
+                <input type="hidden" name="deworming" value={cat.deworming || ""} />
+                <input type="hidden" name="antiFlea" value={cat.antiFlea || ""} />
+                <div className="form-actions">
+                  <button className="button primary">Enregistrer la fiche</button>
+                </div>
+              </form>
+            </Panel>
+            <Panel
+              title="Santé et soins"
+              action={<HealthAction catId={catId} status={cat.healthStatus} run={run} />}
+            >
+              <div className="health-care-grid">
+                <TreatmentAction
+                  label="Médicaments"
+                  field="medications"
+                  value={cat.medications || ""}
+                  schedule={cat.medicationSchedule || ""}
+                  endDate={cat.medicationEndDate || ""}
+                  reminderDate={reminderDateFor("médicament")}
+                  catId={catId}
+                  setSnapshot={setSnapshot}
+                />
+                <TreatmentAction
+                  label="Vaccins"
+                  field="vaccines"
+                  value={cat.vaccines || ""}
+                  reminderDate={
+                    reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")
+                  }
+                  catId={catId}
+                  setSnapshot={setSnapshot}
+                />
+                <TreatmentAction
+                  label="Vermifuge"
+                  field="deworming"
+                  value={cat.deworming || ""}
+                  reminderDate={
+                    reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")
+                  }
+                  catId={catId}
+                  setSnapshot={setSnapshot}
+                />
+                <TreatmentAction
+                  label="Anti-puce"
+                  field="antiFlea"
+                  value={cat.antiFlea || ""}
+                  reminderDate={
+                    reminderDateFor("anti-puce") || dateFromHealthMessage(cat.antiFlea || "")
+                  }
+                  catId={catId}
+                  setSnapshot={setSnapshot}
+                />
+              </div>
+            </Panel>
+          </div>
+          <div
+            className="column-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Redimensionner les événements"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              if (event.buttons !== 1) {
+                return;
+              }
+              const bounds = event.currentTarget.parentElement!.getBoundingClientRect();
+              setHistoryWidth(
+                Math.max(
+                  25,
+                  Math.min(50, Math.round(((bounds.right - event.clientX) / bounds.width) * 100)),
+                ),
+              );
+            }}
+          />
+          <aside className="cat-history-sidebar">
+            <div
+              className={
+                showHistoryForm ? "cat-history-content with-event-form" : "cat-history-content"
+              }
+            >
+              {showHistoryForm && (
+                <Panel title="Ajouter un événement">
+                  <form className="form-grid" onSubmit={recordHistory}>
+                    <Field label="Date">
+                      <FrenchDateInput name="date" defaultValue={localToday()} required />
+                    </Field>
+                    <Field label="Événement / action">
+                      <input
+                        name="title"
+                        required
+                        placeholder="Visite vétérinaire, comportement…"
+                      />
+                    </Field>
+                    <Field label="Prochaine échéance (facultatif)">
+                      <FrenchDateInput name="nextDate" />
+                    </Field>
+                    <Field label="Notes" wide>
+                      <textarea
+                        name="notes"
+                        rows={2}
+                        placeholder="Ce qui s’est passé, résultat, détails utiles…"
+                      />
+                    </Field>
+                    <div className="form-actions">
+                      <button className="button secondary">Ajouter l’événement</button>
+                    </div>
+                  </form>
+                  <p className="panel-intro">
+                    Une prochaine échéance créera aussi un rappel dans les événements.
+                  </p>
+                </Panel>
+              )}
+              <Panel title="Événements">
+                <div className="detail-history">
+                  {history.map((item, index) => (
+                    <div key={`${item.date}-${item.title}-${index}`}>
+                      <time>{formatDate(item.date)}</time>
+                      <span />
+                      <p>
+                        <strong>{item.title}</strong>
+                        <small>{item.notes || "—"}</small>
+                      </p>
+                      {item.deletable && item.id && (
+                        <button
+                          className="icon-button danger"
+                          title="Supprimer cet événement"
+                          aria-label="Supprimer cet événement"
+                          onClick={() => {
+                            if (window.confirm("Supprimer cet événement ?")) {
+                              void run(
+                                () => window.catApp.deleteCatEvent(item.id!),
+                                "Événement supprimé.",
+                              );
+                            }
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          </aside>
+        </div>
+        {cropOpen && (
+          <PhotoCropDialog
+            photo={pendingPhoto ?? photo}
+            initialX={cropX}
+            initialY={cropY}
+            initialScale={cropScale}
+            cancel={() => {
+              setCropOpen(false);
+              setPendingPhoto(null);
+            }}
+            apply={(x, y, scale) => {
+              if (pendingPhoto) {
+                setPhoto(pendingPhoto);
+              }
+              setPendingPhoto(null);
+              setCropX(x);
+              setCropY(y);
+              setCropScale(scale);
+              setCropOpen(false);
+            }}
+          />
+        )}
+      </aside>
+    </div>
+  );
 }
 
 function dateFromHealthMessage(value: string): string | undefined {
-  if (!/(rappel|prochain|prévu|prévue|renouveler|à faire)/i.test(value)) return undefined;
+  if (!/(rappel|prochain|prévu|prévue|renouveler|à faire)/i.test(value)) {
+    return undefined;
+  }
   const match = value.match(/(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
 }
 
-function CatDeathAction({ catId, catName, setSnapshot, onStart }: { catId: string; catName: string; setSnapshot: (snapshot: AppSnapshot) => void; onStart?: () => void }) {
+function CatDeathAction({
+  catId,
+  catName,
+  setSnapshot,
+  onStart,
+}: {
+  catId: string;
+  catName: string;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  onStart?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     try {
-      const snapshot = await window.catApp.declareCatDeceased({ catId, date: String(data.get("date")), notes: String(data.get("notes")) });
+      const snapshot = await window.catApp.declareCatDeceased({
+        catId,
+        date: String(data.get("date")),
+        notes: String(data.get("notes")),
+      });
       setSnapshot(snapshot);
       setOpen(false);
       onStart?.();
-    } catch (cause) { setError(errorMessage(cause)); }
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
   };
-  return <><button className="cat-action-menu-item danger" type="button" onClick={() => { setError(""); setOpen(true); }}>Déclarer le décès</button>{open && <div className="small-action-backdrop" onMouseDown={() => { setOpen(false); onStart?.(); }}><section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}><h2>Déclarer le décès de {catName}</h2><p>Les parrainages actifs seront arrêtés à cette date.</p><form onSubmit={(event) => void submit(event)}><label>Date du décès<FrenchDateInput name="date" defaultValue={localToday()} required/></label><label>Note (facultatif)<input name="notes"/></label>{error && <p className="inline-action-error" role="alert">{error}</p>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => { setOpen(false); onStart?.(); }}>Annuler</button><button className="button danger">Confirmer le décès</button></div></form></section></div>}</>;
+  return (
+    <>
+      <button
+        className="cat-action-menu-item danger"
+        type="button"
+        onClick={() => {
+          setError("");
+          setOpen(true);
+        }}
+      >
+        Déclarer le décès
+      </button>
+      {open && (
+        <div
+          className="small-action-backdrop"
+          onMouseDown={() => {
+            setOpen(false);
+            onStart?.();
+          }}
+        >
+          <section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}>
+            <h2>Déclarer le décès de {catName}</h2>
+            <p>Les parrainages actifs seront arrêtés à cette date.</p>
+            <form onSubmit={(event) => void submit(event)}>
+              <label>
+                Date du décès
+                <FrenchDateInput name="date" defaultValue={localToday()} required />
+              </label>
+              <label>
+                Note (facultatif)
+                <input name="notes" />
+              </label>
+              {error && (
+                <p className="inline-action-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    setOpen(false);
+                    onStart?.();
+                  }}
+                >
+                  Annuler
+                </button>
+                <button className="button danger">Confirmer le décès</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+    </>
+  );
 }
 
-function TreatmentAction({ label, field, value, schedule = "", endDate = "", reminderDate, catId, setSnapshot }: { label: string; field: "medications" | "vaccines" | "deworming" | "antiFlea"; value: string; schedule?: string; endDate?: string; reminderDate?: string; catId: string; setSnapshot: (snapshot: AppSnapshot) => void }) {
+function TreatmentAction({
+  label,
+  field,
+  value,
+  schedule = "",
+  endDate = "",
+  reminderDate,
+  catId,
+  setSnapshot,
+}: {
+  label: string;
+  field: "medications" | "vaccines" | "deworming" | "antiFlea";
+  value: string;
+  schedule?: string;
+  endDate?: string;
+  reminderDate?: string;
+  catId: string;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value);
   const [hours, setHours] = useState(schedule);
   const [until, setUntil] = useState(endDate);
   const [confirmDismiss, setConfirmDismiss] = useState(false);
   const [localError, setLocalError] = useState("");
-  useEffect(() => { setText(value); setHours(schedule); setUntil(endDate); }, [value, schedule, endDate]);
-  const activeMedication = field === "medications" && Boolean(value.trim()) && !/^(aucun|pas de) (médicament|traitement)/i.test(value.trim());
+  useEffect(() => {
+    setText(value);
+    setHours(schedule);
+    setUntil(endDate);
+  }, [value, schedule, endDate]);
+  const activeMedication =
+    field === "medications" &&
+    Boolean(value.trim()) &&
+    !/^(aucun|pas de) (médicament|traitement)/i.test(value.trim());
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const date = String(data.get("date") ?? "");
     const nextDate = String(data.get("nextDate") ?? "");
-    if (nextDate && nextDate < date) { setLocalError("La prochaine date doit être égale ou postérieure à la date de l’action."); return; }
+    if (nextDate && nextDate < date) {
+      setLocalError("La prochaine date doit être égale ou postérieure à la date de l’action.");
+      return;
+    }
     setLocalError("");
     try {
-      const update = field === "medications" ? { medications: text, medicationSchedule: hours, medicationEndDate: until } : { [field]: text };
+      const update =
+        field === "medications"
+          ? { medications: text, medicationSchedule: hours, medicationEndDate: until }
+          : { [field]: text };
       await window.catApp.updateCat({ id: catId, ...update });
-      const snapshot = await window.catApp.recordCatHistory({ catId, date, title: `${label} · ${text || "mise à jour"}`, notes: field === "medications" ? [hours && `Horaires : ${hours}`, until && `Jusqu'au ${formatDate(until)}`].filter(Boolean).join(" · ") || "Suivi de santé" : "Suivi de santé", nextDate: nextDate || undefined });
+      const snapshot = await window.catApp.recordCatHistory({
+        catId,
+        date,
+        title: `${label} · ${text || "mise à jour"}`,
+        notes:
+          field === "medications"
+            ? [hours && `Horaires : ${hours}`, until && `Jusqu'au ${formatDate(until)}`]
+                .filter(Boolean)
+                .join(" · ") || "Suivi de santé"
+            : "Suivi de santé",
+        nextDate: nextDate || undefined,
+      });
       setSnapshot(snapshot);
       setOpen(false);
-    } catch (error) { setLocalError(errorMessage(error)); }
+    } catch (error) {
+      setLocalError(errorMessage(error));
+    }
   };
   const dismissMedication = async () => {
     setLocalError("");
     try {
-      await window.catApp.updateCat({ id: catId, medications: "", medicationSchedule: "", medicationEndDate: "" });
-      const snapshot = await window.catApp.recordCatHistory({ catId, date: localToday(), title: "Médicament arrêté", notes: `${value} · le traitement n'est plus nécessaire.` });
+      await window.catApp.updateCat({
+        id: catId,
+        medications: "",
+        medicationSchedule: "",
+        medicationEndDate: "",
+      });
+      const snapshot = await window.catApp.recordCatHistory({
+        catId,
+        date: localToday(),
+        title: "Médicament arrêté",
+        notes: `${value} · le traitement n'est plus nécessaire.`,
+      });
       setSnapshot(snapshot);
       setConfirmDismiss(false);
-    } catch (error) { setLocalError(errorMessage(error)); }
+    } catch (error) {
+      setLocalError(errorMessage(error));
+    }
   };
-  const isDue = Boolean((reminderDate && reminderDate <= localToday()) || (field === "medications" && endDate && endDate <= localToday()));
-  return <><div className="health-care-action"><button type="button" className={`health-care-card ${activeMedication ? "active-medication" : ""} ${isDue ? "due" : ""}`} onClick={() => { setLocalError(""); setOpen(true); }}><strong>{label}</strong><span>{value || (field === "medications" ? "Aucun traitement en cours" : "Aucune information renseignée")}</span>{field === "medications" && activeMedication && <>{schedule && <small>Horaires : {schedule}</small>}{endDate && <small>Fin du traitement : {formatDate(endDate)}</small>}{reminderDate && <small>Prochaine prise : {formatDate(reminderDate)}</small>}</>}{(field === "vaccines" || field === "deworming" || field === "antiFlea") && reminderDate && <small>Prochaine date : {formatDate(reminderDate)}</small>}</button>{activeMedication && <button type="button" className="medication-dismiss" aria-label="Arrêter ce médicament" title="Arrêter le médicament" onClick={() => { setLocalError(""); setConfirmDismiss(true); }}>×</button>}</div>{open && <div className="small-action-backdrop" onMouseDown={() => setOpen(false)}><section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}><h2>{label} · suivi de santé</h2><form onSubmit={(event) => void save(event)}><label>{field === "medications" ? "Médicament et dose" : "Message / état"}<input autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder={field === "medications" ? "Ex. antibiotique · 1 comprimé" : "Ajouter le message ou l'état"}/></label>{field === "medications" && <><label>Heures et fréquence<input value={hours} onChange={(event) => setHours(event.target.value)} placeholder="Ex. 08:00 et 20:00"/></label><label>Fin du traitement<FrenchDateInput name="until" value={until} onChange={setUntil}/></label></>}<label>Date de l’action<FrenchDateInput name="date" defaultValue={localToday()} required/></label><label>{field === "medications" ? "Prochaine prise (facultatif)" : "Prochaine échéance (facultatif)"}<FrenchDateInput name="nextDate" defaultValue={reminderDate}/></label>{localError && <p className="inline-action-error" role="alert">{localError}</p>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => setOpen(false)}>Annuler</button><button className="button primary">Enregistrer</button></div></form></section></div>}{confirmDismiss && <div className="small-action-backdrop" onMouseDown={() => setConfirmDismiss(false)}><section className="small-action-panel medication-confirm" onMouseDown={(event) => event.stopPropagation()}><h2>Arrêter le médicament ?</h2><p>Confirmer que « {value} » n’est plus nécessaire ? Le traitement sera retiré de la fiche et cette décision ajoutée à l’historique.</p>{localError && <p className="inline-action-error" role="alert">{localError}</p>}<div className="form-actions"><button className="button secondary" onClick={() => setConfirmDismiss(false)}>Annuler</button><button className="button primary" onClick={() => void dismissMedication()}>Confirmer l’arrêt</button></div></section></div>}</>;
+  const isDue = Boolean(
+    (reminderDate && reminderDate <= localToday()) ||
+      (field === "medications" && endDate && endDate <= localToday()),
+  );
+  return (
+    <>
+      <div className="health-care-action">
+        <button
+          type="button"
+          className={`health-care-card ${activeMedication ? "active-medication" : ""} ${isDue ? "due" : ""}`}
+          onClick={() => {
+            setLocalError("");
+            setOpen(true);
+          }}
+        >
+          <strong>{label}</strong>
+          <span>
+            {value ||
+              (field === "medications"
+                ? "Aucun traitement en cours"
+                : "Aucune information renseignée")}
+          </span>
+          {field === "medications" && activeMedication && (
+            <>
+              {schedule && <small>Horaires : {schedule}</small>}
+              {endDate && <small>Fin du traitement : {formatDate(endDate)}</small>}
+              {reminderDate && <small>Prochaine prise : {formatDate(reminderDate)}</small>}
+            </>
+          )}
+          {(field === "vaccines" || field === "deworming" || field === "antiFlea") &&
+            reminderDate && <small>Prochaine date : {formatDate(reminderDate)}</small>}
+        </button>
+        {activeMedication && (
+          <button
+            type="button"
+            className="medication-dismiss"
+            aria-label="Arrêter ce médicament"
+            title="Arrêter le médicament"
+            onClick={() => {
+              setLocalError("");
+              setConfirmDismiss(true);
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="small-action-backdrop" onMouseDown={() => setOpen(false)}>
+          <section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}>
+            <h2>{label} · suivi de santé</h2>
+            <form onSubmit={(event) => void save(event)}>
+              <label>
+                {field === "medications" ? "Médicament et dose" : "Message / état"}
+                <input
+                  autoFocus
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  placeholder={
+                    field === "medications"
+                      ? "Ex. antibiotique · 1 comprimé"
+                      : "Ajouter le message ou l'état"
+                  }
+                />
+              </label>
+              {field === "medications" && (
+                <>
+                  <label>
+                    Heures et fréquence
+                    <input
+                      value={hours}
+                      onChange={(event) => setHours(event.target.value)}
+                      placeholder="Ex. 08:00 et 20:00"
+                    />
+                  </label>
+                  <label>
+                    Fin du traitement
+                    <FrenchDateInput name="until" value={until} onChange={setUntil} />
+                  </label>
+                </>
+              )}
+              <label>
+                Date de l’action
+                <FrenchDateInput name="date" defaultValue={localToday()} required />
+              </label>
+              <label>
+                {field === "medications"
+                  ? "Prochaine prise (facultatif)"
+                  : "Prochaine échéance (facultatif)"}
+                <FrenchDateInput name="nextDate" defaultValue={reminderDate} />
+              </label>
+              {localError && (
+                <p className="inline-action-error" role="alert">
+                  {localError}
+                </p>
+              )}
+              <div className="form-actions">
+                <button type="button" className="button secondary" onClick={() => setOpen(false)}>
+                  Annuler
+                </button>
+                <button className="button primary">Enregistrer</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {confirmDismiss && (
+        <div className="small-action-backdrop" onMouseDown={() => setConfirmDismiss(false)}>
+          <section
+            className="small-action-panel medication-confirm"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2>Arrêter le médicament ?</h2>
+            <p>
+              Confirmer que « {value} » n’est plus nécessaire ? Le traitement sera retiré de la
+              fiche et cette décision ajoutée à l’historique.
+            </p>
+            {localError && (
+              <p className="inline-action-error" role="alert">
+                {localError}
+              </p>
+            )}
+            <div className="form-actions">
+              <button className="button secondary" onClick={() => setConfirmDismiss(false)}>
+                Annuler
+              </button>
+              <button className="button primary" onClick={() => void dismissMedication()}>
+                Confirmer l’arrêt
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
+  );
 }
 
-function PhotoCropDialog({ photo, initialX, initialY, initialScale, cancel, apply }: { photo: string; initialX: number; initialY: number; initialScale: number; cancel: () => void; apply: (x: number, y: number, scale: number) => void }) {
+function PhotoCropDialog({
+  photo,
+  initialX,
+  initialY,
+  initialScale,
+  cancel,
+  apply,
+}: {
+  photo: string;
+  initialX: number;
+  initialY: number;
+  initialScale: number;
+  cancel: () => void;
+  apply: (x: number, y: number, scale: number) => void;
+}) {
   const [x, setX] = useState(initialX);
   const [y, setY] = useState(initialY);
   const [scale, setScale] = useState(initialScale);
-  const move = (event: PointerEvent<HTMLDivElement>) => { if (event.buttons !== 1) return; const bounds = event.currentTarget.getBoundingClientRect(); setX(Math.max(0, Math.min(100, Math.round(((event.clientX - bounds.left) / bounds.width - .2) / .6 * 100)))); setY(Math.max(0, Math.min(100, Math.round(((event.clientY - bounds.top) / bounds.height - .2) / .6 * 100)))); };
-  const circleSize = Math.round(scale * .64);
-  const center = (value: number) => `${circleSize / 2 + value * (100 - circleSize) / 100}%`;
-  return <div className="photo-crop-backdrop" onMouseDown={cancel}><section className="photo-crop-dialog" onMouseDown={(event) => event.stopPropagation()}><h2>Positionner la photo</h2><p>Déplacez le cercle sur la partie de la photo à afficher, puis ajustez sa taille.</p><div className="photo-crop-stage" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); move(event); }} onPointerMove={move}><img src={photo} alt="Photo à recadrer"/><div className="photo-crop-circle" style={{ left: center(x), top: center(y), width: `${circleSize}%` }}/></div><div className="crop-size-control"><span>Taille du cercle</span><button className="button secondary" aria-label="Réduire le cercle" disabled={scale <= 55} onClick={() => setScale(Math.max(55, scale - 5))}>−</button><output>{scale}%</output><button className="button secondary" aria-label="Agrandir le cercle" disabled={scale >= 100} onClick={() => setScale(Math.min(100, scale + 5))}>+</button></div><div className="form-actions"><button className="button secondary" onClick={cancel}>Annuler</button><button className="button primary" onClick={() => apply(x, y, scale)}>OK</button></div></section></div>;
+  const move = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.buttons !== 1) {
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setX(
+      Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round((((event.clientX - bounds.left) / bounds.width - 0.2) / 0.6) * 100),
+        ),
+      ),
+    );
+    setY(
+      Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round((((event.clientY - bounds.top) / bounds.height - 0.2) / 0.6) * 100),
+        ),
+      ),
+    );
+  };
+  const circleSize = Math.round(scale * 0.64);
+  const center = (value: number) => `${circleSize / 2 + (value * (100 - circleSize)) / 100}%`;
+  return (
+    <div className="photo-crop-backdrop" onMouseDown={cancel}>
+      <section className="photo-crop-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <h2>Positionner la photo</h2>
+        <p>Déplacez le cercle sur la partie de la photo à afficher, puis ajustez sa taille.</p>
+        <div
+          className="photo-crop-stage"
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            move(event);
+          }}
+          onPointerMove={move}
+        >
+          <img src={photo} alt="Photo à recadrer" />
+          <div
+            className="photo-crop-circle"
+            style={{ left: center(x), top: center(y), width: `${circleSize}%` }}
+          />
+        </div>
+        <div className="crop-size-control">
+          <span>Taille du cercle</span>
+          <button
+            className="button secondary"
+            aria-label="Réduire le cercle"
+            disabled={scale <= 55}
+            onClick={() => setScale(Math.max(55, scale - 5))}
+          >
+            −
+          </button>
+          <output>{scale}%</output>
+          <button
+            className="button secondary"
+            aria-label="Agrandir le cercle"
+            disabled={scale >= 100}
+            onClick={() => setScale(Math.min(100, scale + 5))}
+          >
+            +
+          </button>
+        </div>
+        <div className="form-actions">
+          <button className="button secondary" onClick={cancel}>
+            Annuler
+          </button>
+          <button className="button primary" onClick={() => apply(x, y, scale)}>
+            OK
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
-function HealthAction({ catId, status, run }: { catId: string; status: "HEALTHY" | "SICK" | "RECOVERED"; run: PageProps["run"] }) {
+function HealthAction({
+  catId,
+  status,
+  run,
+}: {
+  catId: string;
+  status: "HEALTHY" | "SICK" | "RECOVERED";
+  run: PageProps["run"];
+}) {
   const [open, setOpen] = useState(false);
   const label = status === "SICK" ? "Malade" : status === "RECOVERED" ? "Rétabli" : "Sain";
-  const update = (healthStatus: "HEALTHY" | "SICK" | "RECOVERED") => { void run(() => window.catApp.updateCat({ id: catId, healthStatus }), "État de santé mis à jour.").then(() => setOpen(false)); };
-  return <span className="health-fact-wrap"><button type="button" className="health-fact" aria-expanded={open} onClick={() => setOpen(!open)}><span>État de santé</span><strong>{label} ▾</strong></button>{open && <div className="health-action-popover"><strong>État de santé</strong><button onClick={() => update("HEALTHY")}>Marquer sain</button><button onClick={() => update("RECOVERED")}>Marquer rétabli</button><button className="health-popover-close" onClick={() => setOpen(false)}>Fermer</button></div>}</span>;
+  const update = (healthStatus: "HEALTHY" | "SICK" | "RECOVERED") => {
+    void run(
+      () => window.catApp.updateCat({ id: catId, healthStatus }),
+      "État de santé mis à jour.",
+    ).then(() => setOpen(false));
+  };
+  return (
+    <span className="health-fact-wrap">
+      <button
+        type="button"
+        className="health-fact"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span>État de santé</span>
+        <strong>{label} ▾</strong>
+      </button>
+      {open && (
+        <div className="health-action-popover">
+          <strong>État de santé</strong>
+          <button onClick={() => update("HEALTHY")}>Marquer sain</button>
+          <button onClick={() => update("RECOVERED")}>Marquer rétabli</button>
+          <button className="health-popover-close" onClick={() => setOpen(false)}>
+            Fermer
+          </button>
+        </div>
+      )}
+    </span>
+  );
 }
 
 async function cropPhotoToSquare(photo: string, x: number, y: number, scale = 75): Promise<string> {
-  if (!photo.startsWith("data:image/")) return photo;
+  if (!photo.startsWith("data:image/")) {
+    return photo;
+  }
   const image = new Image();
   image.src = photo;
-  await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("La photo n'a pas pu être chargée.")); });
-  const side = Math.min(image.naturalWidth, image.naturalHeight) * scale / 100;
-  const sourceX = (image.naturalWidth - side) * x / 100;
-  const sourceY = (image.naturalHeight - side) * y / 100;
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("La photo n'a pas pu être chargée."));
+  });
+  const side = (Math.min(image.naturalWidth, image.naturalHeight) * scale) / 100;
+  const sourceX = ((image.naturalWidth - side) * x) / 100;
+  const sourceY = ((image.naturalHeight - side) * y) / 100;
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 512;
   const context = canvas.getContext("2d");
-  if (!context) return photo;
+  if (!context) {
+    return photo;
+  }
   context.drawImage(image, sourceX, sourceY, side, side, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", .88);
+  return canvas.toDataURL("image/jpeg", 0.88);
 }
 
-function CompatibilityChoices({ name, label, value }: { name: string; label: string; value: boolean | null | undefined }) {
+function CompatibilityChoices({
+  name,
+  label,
+  value,
+}: {
+  name: string;
+  label: string;
+  value: boolean | null | undefined;
+}) {
   const [choice, setChoice] = useState(value == null ? "unknown" : value ? "yes" : "no");
-  const states = [{ value: "yes", label: "✅ Oui" }, { value: "no", label: "❌ Non" }, { value: "unknown", label: "🤔 À tester" }];
+  const states = [
+    { value: "yes", label: "✅ Oui" },
+    { value: "no", label: "❌ Non" },
+    { value: "unknown", label: "🤔 À tester" },
+  ];
   const current = states.findIndex((state) => state.value === choice);
-  return <div className="field compatibility-field"><span>{label}</span><button type="button" className={`compatibility-cycle ${choice}`} aria-label={`${label} : ${states[current].label}. Cliquer pour changer`} onClick={() => setChoice(states[(current + 1) % states.length].value)}>{states[current].label} <small>↻</small></button><input type="hidden" name={name} value={choice}/></div>;
+  return (
+    <div className="field compatibility-field">
+      <span>{label}</span>
+      <button
+        type="button"
+        className={`compatibility-cycle ${choice}`}
+        aria-label={`${label} : ${states[current].label}. Cliquer pour changer`}
+        onClick={() => setChoice(states[(current + 1) % states.length].value)}
+      >
+        {states[current].label} <small>↻</small>
+      </button>
+      <input type="hidden" name={name} value={choice} />
+    </div>
+  );
 }
 
 function CatForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
   const [birthDate, setBirthDate] = useState("");
   const [specialNeeds, setSpecialNeeds] = useState(false);
   const automaticProfile = profileForBirthDate(birthDate) ?? "ADULT";
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => window.catApp.createCat({ name: String(data.get("name")), identificationNumber: String(data.get("identificationNumber")), birthDate: String(data.get("birthDate")), sex: String(data.get("sex")) as "F" | "M" | "UNKNOWN", profile: specialNeeds ? "SPECIAL_NEEDS" : automaticProfile, sterilizationStatus: String(data.get("sterilizationStatus")) as SterilizationStatus, adoptionEligibility: String(data.get("adoptionEligibility")) as AdoptionEligibility, adoptionBlockedReason: String(data.get("adoptionBlockedReason")), intakeDate: String(data.get("intakeDate")), notes: String(data.get("notes")) }), "Chat enregistré.").then(done); };
-  return <Panel title="Enregistrer un chat"><form className="form-grid" onSubmit={submit}><Field label="Nom *"><input name="name" required/></Field><Field label="Numéro ICAD"><input name="identificationNumber"/></Field><Field label="Date de naissance"><FrenchDateInput name="birthDate" onChange={setBirthDate}/></Field><Field label="Sexe"><select name="sex"><option value="UNKNOWN">Inconnu</option><option value="F">Femelle</option><option value="M">Mâle</option></select></Field><Field label="Profil automatique"><select value={specialNeeds ? "SPECIAL_NEEDS" : "AUTO"} onChange={(event) => setSpecialNeeds(event.target.value === "SPECIAL_NEEDS")}><option value="AUTO">{PROFILE_LABEL[automaticProfile]} · selon l’âge</option><option value="SPECIAL_NEEDS">Besoins particuliers</option></select></Field><Field label="Stérilisation"><select name="sterilizationStatus"><option value="UNKNOWN">Non renseignée</option><option value="TODO">À faire</option><option value="DONE">Faite</option></select></Field><Field label="Adoption"><select name="adoptionEligibility"><option value="ELIGIBLE">Adoptable</option><option value="ON_HOLD">En attente</option><option value="INELIGIBLE">Non adoptable</option></select></Field><Field label="Motif éventuel"><input name="adoptionBlockedReason"/></Field><Field label="Date d'arrivée *"><FrenchDateInput name="intakeDate" defaultValue={localToday()} required/></Field><Field label="Notes" wide><textarea name="notes" rows={2}/></Field><div className="form-actions"><button className="button primary">Enregistrer</button></div></form></Panel>;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    void run(
+      () =>
+        window.catApp.createCat({
+          name: String(data.get("name")),
+          identificationNumber: String(data.get("identificationNumber")),
+          birthDate: String(data.get("birthDate")),
+          sex: String(data.get("sex")) as "F" | "M" | "UNKNOWN",
+          profile: specialNeeds ? "SPECIAL_NEEDS" : automaticProfile,
+          sterilizationStatus: String(data.get("sterilizationStatus")) as SterilizationStatus,
+          adoptionEligibility: String(data.get("adoptionEligibility")) as AdoptionEligibility,
+          adoptionBlockedReason: String(data.get("adoptionBlockedReason")),
+          intakeDate: String(data.get("intakeDate")),
+          notes: String(data.get("notes")),
+        }),
+      "Chat enregistré.",
+    ).then(done);
+  };
+  return (
+    <Panel title="Enregistrer un chat">
+      <form className="form-grid" onSubmit={submit}>
+        <Field label="Nom *">
+          <input name="name" required />
+        </Field>
+        <Field label="Numéro ICAD">
+          <input name="identificationNumber" />
+        </Field>
+        <Field label="Date de naissance">
+          <FrenchDateInput name="birthDate" onChange={setBirthDate} />
+        </Field>
+        <Field label="Sexe">
+          <select name="sex">
+            <option value="UNKNOWN">Inconnu</option>
+            <option value="F">Femelle</option>
+            <option value="M">Mâle</option>
+          </select>
+        </Field>
+        <Field label="Profil automatique">
+          <select
+            value={specialNeeds ? "SPECIAL_NEEDS" : "AUTO"}
+            onChange={(event) => setSpecialNeeds(event.target.value === "SPECIAL_NEEDS")}
+          >
+            <option value="AUTO">{PROFILE_LABEL[automaticProfile]} · selon l’âge</option>
+            <option value="SPECIAL_NEEDS">Besoins particuliers</option>
+          </select>
+        </Field>
+        <Field label="Stérilisation">
+          <select name="sterilizationStatus">
+            <option value="UNKNOWN">Non renseignée</option>
+            <option value="TODO">À faire</option>
+            <option value="DONE">Faite</option>
+          </select>
+        </Field>
+        <Field label="Adoption">
+          <select name="adoptionEligibility">
+            <option value="ELIGIBLE">Adoptable</option>
+            <option value="ON_HOLD">En attente</option>
+            <option value="INELIGIBLE">Non adoptable</option>
+          </select>
+        </Field>
+        <Field label="Motif éventuel">
+          <input name="adoptionBlockedReason" />
+        </Field>
+        <Field label="Date d'arrivée *">
+          <FrenchDateInput name="intakeDate" defaultValue={localToday()} required />
+        </Field>
+        <Field label="Notes" wide>
+          <textarea name="notes" rows={2} />
+        </Field>
+        <div className="form-actions">
+          <button className="button primary">Enregistrer</button>
+        </div>
+      </form>
+    </Panel>
+  );
 }
 
 function FamiliesPage({ snapshot, run }: PageProps) {
   const [showForm, setShowForm] = useState(false);
   const [showPlacement, setShowPlacement] = useState(false);
   const [holidayFamilyId, setHolidayFamilyId] = useState("");
-  return <div className="page-stack"><div className="section-heading"><p>{snapshot.families.length} familles d'accueil · accueil et capacité sur une seule page</p><div className="heading-actions"><button className="button secondary" onClick={() => setShowPlacement(!showPlacement)}>{showPlacement ? "Fermer l'accueil" : "+ Ajouter un chat à une famille"}</button><button className="button primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Fermer" : "+ Nouvelle famille"}</button></div></div>
-    {showForm && <FamilyForm run={run} done={() => setShowForm(false)}/>} {showPlacement && <PlacementsPage snapshot={snapshot} run={run}/>} 
-    {holidayFamilyId && <HolidayTransfers snapshot={snapshot} run={run} familyId={holidayFamilyId} close={() => setHolidayFamilyId("")}/>} 
-    <div className="family-grid">{snapshot.families.map((family) => { const cats = snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id); const holidays = snapshot.fosterFamilyHolidays.filter((holiday) => holiday.familyId === family.id); return <article className="family-card" id={`family-${family.id}`} key={family.id}><div className="family-card-head"><div><FamilyLink family={family}/><span>{family.firstName} {family.lastName}</span></div><b className={cats.length >= family.maxCapacity ? "capacity-full" : ""}>{cats.length}/{family.maxCapacity}</b></div><p>{family.email || "Pas d'e-mail"} · {family.phone || "Pas de téléphone"}</p><div className="tag-row">{family.acceptedProfiles.map((profile) => <span className="tag" key={profile}>{PROFILE_LABEL[profile]}</span>)}</div><div className="resident-list"><small>Chats actuels</small>{cats.map((cat) => <CatIdentity key={cat.id} cat={cat}/>)}{!cats.length && <strong>Aucun</strong>}</div>{holidays.map((holiday) => <div className="holiday" key={holiday.id}><span>Indisponible {formatDate(holiday.startDate)}–{formatDate(holiday.endDate)}</span>{cats.length > 0 && <button className="button tiny" onClick={() => setHolidayFamilyId(family.id)}>Déplacer les chats</button>}{holiday.endDate <= localToday() && <button className="button tiny" onClick={() => setHolidayFamilyId(family.id)}>Chats à faire revenir</button>}</div>)}<button className="text-button" onClick={() => { const startDate = window.prompt("Début des vacances (JJ/MM/AAAA)", formatDate(localToday())); if (!startDate) return; const endDate = window.prompt("Fin des vacances (JJ/MM/AAAA)", startDate); const startIso = dateFromFrench(startDate); const endIso = endDate ? dateFromFrench(endDate) : ""; if (startIso && endIso) void run(() => window.catApp.addFamilyHoliday({ familyId: family.id, startDate: startIso, endDate: endIso }), "Indisponibilité ajoutée."); else if (endDate) window.alert("Saisissez les dates au format JJ/MM/AAAA."); }}>+ Ajouter une indisponibilité</button></article>; })}</div></div>;
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <p>
+          {snapshot.families.length} familles d'accueil · accueil et capacité sur une seule page
+        </p>
+        <div className="heading-actions">
+          <button className="button secondary" onClick={() => setShowPlacement(!showPlacement)}>
+            {showPlacement ? "Fermer l'accueil" : "+ Ajouter un chat à une famille"}
+          </button>
+          <button className="button primary" onClick={() => setShowForm(!showForm)}>
+            {showForm ? "Fermer" : "+ Nouvelle famille"}
+          </button>
+        </div>
+      </div>
+      {showForm && <FamilyForm run={run} done={() => setShowForm(false)} />}{" "}
+      {showPlacement && <PlacementsPage snapshot={snapshot} run={run} />}
+      {holidayFamilyId && (
+        <HolidayTransfers
+          snapshot={snapshot}
+          run={run}
+          familyId={holidayFamilyId}
+          close={() => setHolidayFamilyId("")}
+        />
+      )}
+      <div className="family-grid">
+        {snapshot.families.map((family) => {
+          const cats = snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id);
+          const holidays = snapshot.fosterFamilyHolidays.filter(
+            (holiday) => holiday.familyId === family.id,
+          );
+          return (
+            <article className="family-card" id={`family-${family.id}`} key={family.id}>
+              <div className="family-card-head">
+                <div>
+                  <FamilyLink family={family} />
+                  <span>
+                    {family.firstName} {family.lastName}
+                  </span>
+                </div>
+                <b className={cats.length >= family.maxCapacity ? "capacity-full" : ""}>
+                  {cats.length}/{family.maxCapacity}
+                </b>
+              </div>
+              <p>
+                {family.email || "Pas d'e-mail"} · {family.phone || "Pas de téléphone"}
+              </p>
+              <div className="tag-row">
+                {family.acceptedProfiles.map((profile) => (
+                  <span className="tag" key={profile}>
+                    {PROFILE_LABEL[profile]}
+                  </span>
+                ))}
+              </div>
+              <div className="resident-list">
+                <small>Chats actuels</small>
+                {cats.map((cat) => (
+                  <CatIdentity key={cat.id} cat={cat} />
+                ))}
+                {!cats.length && <strong>Aucun</strong>}
+              </div>
+              {holidays.map((holiday) => (
+                <div className="holiday" key={holiday.id}>
+                  <span>
+                    Indisponible {formatDate(holiday.startDate)}–{formatDate(holiday.endDate)}
+                  </span>
+                  {cats.length > 0 && (
+                    <button className="button tiny" onClick={() => setHolidayFamilyId(family.id)}>
+                      Déplacer les chats
+                    </button>
+                  )}
+                  {holiday.endDate <= localToday() && (
+                    <button className="button tiny" onClick={() => setHolidayFamilyId(family.id)}>
+                      Chats à faire revenir
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                className="text-button"
+                onClick={() => {
+                  const startDate = window.prompt(
+                    "Début des vacances (JJ/MM/AAAA)",
+                    formatDate(localToday()),
+                  );
+                  if (!startDate) {
+                    return;
+                  }
+                  const endDate = window.prompt("Fin des vacances (JJ/MM/AAAA)", startDate);
+                  const startIso = dateFromFrench(startDate);
+                  const endIso = endDate ? dateFromFrench(endDate) : "";
+                  if (startIso && endIso) {
+                    void run(
+                      () =>
+                        window.catApp.addFamilyHoliday({
+                          familyId: family.id,
+                          startDate: startIso,
+                          endDate: endIso,
+                        }),
+                      "Indisponibilité ajoutée.",
+                    );
+                  } else if (endDate) {
+                    window.alert("Saisissez les dates au format JJ/MM/AAAA.");
+                  }
+                }}
+              >
+                + Ajouter une indisponibilité
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-function HolidayTransfers({ snapshot, run, familyId, close }: PageProps & { familyId: string; close: () => void }) {
+function HolidayTransfers({
+  snapshot,
+  run,
+  familyId,
+  close,
+}: PageProps & { familyId: string; close: () => void }) {
   const family = snapshot.families.find((candidate) => candidate.id === familyId)!;
   const holidays = snapshot.fosterFamilyHolidays.filter((holiday) => holiday.familyId === familyId);
   const current = snapshot.catViews.filter((cat) => cat.currentFamilyId === familyId);
-  const returningIds = new Set(snapshot.fosterPlacements.filter((placement) => placement.familyId === familyId && placement.endDate && holidays.some((holiday) => placement.endDate >= holiday.startDate && placement.endDate <= holiday.endDate)).map((placement) => placement.catId));
-  const returning = snapshot.catViews.filter((cat) => returningIds.has(cat.id) && cat.currentFamilyId !== familyId && !["ADOPTED", "LOST", "DECEASED"].includes(cat.status));
-  const move = async (catId: string, targetId: string, date: string) => { if (!targetId) return; const input = { catId, familyId: targetId, startDate: date, notes: `Déplacement lié à l'indisponibilité de ${family.label}` }; const assessment = await window.catApp.assessPlacement(input); let overrideReason = ""; if (assessment.warnings.length) { if (!window.confirm(`${assessment.warnings.join("\n")}\n\nContinuer ?`)) return; overrideReason = "Déplacement nécessaire pendant une indisponibilité"; } await run(() => window.catApp.startPlacement({ ...input, overrideWarnings: assessment.warnings.length > 0, overrideReason }), "Chat déplacé vers sa nouvelle famille."); };
-  return <Panel title={`Organiser les mouvements · ${family.label}`} action={<button className="text-button" onClick={close}>Fermer</button>}><p className="panel-intro">Déplacez les chats avant l'indisponibilité, puis affichez ceux qui peuvent revenir lorsque la période est terminée.</p><div className="transfer-list">{current.map((cat) => <TransferRow key={cat.id} cat={cat} families={snapshot.families.filter((candidate) => candidate.id !== familyId)} date={holidays.at(-1)?.startDate || localToday()} action="Déplacer" onMove={move}/>)}{returning.map((cat) => <TransferRow key={`return-${cat.id}`} cat={cat} families={[family]} date={holidays.at(-1)?.endDate || localToday()} action="Faire revenir" onMove={move}/>)}{!current.length && !returning.length && <Empty text="Aucun chat à déplacer ou à faire revenir."/>}</div></Panel>;
+  const returningIds = new Set(
+    snapshot.fosterPlacements
+      .filter(
+        (placement) =>
+          placement.familyId === familyId &&
+          placement.endDate &&
+          holidays.some(
+            (holiday) =>
+              placement.endDate >= holiday.startDate && placement.endDate <= holiday.endDate,
+          ),
+      )
+      .map((placement) => placement.catId),
+  );
+  const returning = snapshot.catViews.filter(
+    (cat) =>
+      returningIds.has(cat.id) &&
+      cat.currentFamilyId !== familyId &&
+      !["ADOPTED", "LOST", "DECEASED"].includes(cat.status),
+  );
+  const move = async (catId: string, targetId: string, date: string) => {
+    if (!targetId) {
+      return;
+    }
+    const input = {
+      catId,
+      familyId: targetId,
+      startDate: date,
+      notes: `Déplacement lié à l'indisponibilité de ${family.label}`,
+    };
+    const assessment = await window.catApp.assessPlacement(input);
+    let overrideReason = "";
+    if (assessment.warnings.length) {
+      if (!window.confirm(`${assessment.warnings.join("\n")}\n\nContinuer ?`)) {
+        return;
+      }
+      overrideReason = "Déplacement nécessaire pendant une indisponibilité";
+    }
+    await run(
+      () =>
+        window.catApp.startPlacement({
+          ...input,
+          overrideWarnings: assessment.warnings.length > 0,
+          overrideReason,
+        }),
+      "Chat déplacé vers sa nouvelle famille.",
+    );
+  };
+  return (
+    <Panel
+      title={`Organiser les mouvements · ${family.label}`}
+      action={
+        <button className="text-button" onClick={close}>
+          Fermer
+        </button>
+      }
+    >
+      <p className="panel-intro">
+        Déplacez les chats avant l'indisponibilité, puis affichez ceux qui peuvent revenir lorsque
+        la période est terminée.
+      </p>
+      <div className="transfer-list">
+        {current.map((cat) => (
+          <TransferRow
+            key={cat.id}
+            cat={cat}
+            families={snapshot.families.filter((candidate) => candidate.id !== familyId)}
+            date={holidays.at(-1)?.startDate || localToday()}
+            action="Déplacer"
+            onMove={move}
+          />
+        ))}
+        {returning.map((cat) => (
+          <TransferRow
+            key={`return-${cat.id}`}
+            cat={cat}
+            families={[family]}
+            date={holidays.at(-1)?.endDate || localToday()}
+            action="Faire revenir"
+            onMove={move}
+          />
+        ))}
+        {!current.length && !returning.length && (
+          <Empty text="Aucun chat à déplacer ou à faire revenir." />
+        )}
+      </div>
+    </Panel>
+  );
 }
 
-function TransferRow({ cat, families, date, action, onMove }: { cat: AppSnapshot["catViews"][number]; families: AppSnapshot["families"]; date: string; action: string; onMove: (catId: string, familyId: string, date: string) => Promise<void> }) {
+function TransferRow({
+  cat,
+  families,
+  date,
+  action,
+  onMove,
+}: {
+  cat: AppSnapshot["catViews"][number];
+  families: AppSnapshot["families"];
+  date: string;
+  action: string;
+  onMove: (catId: string, familyId: string, date: string) => Promise<void>;
+}) {
   const [familyId, setFamilyId] = useState(families[0]?.id ?? "");
-  return <div className="transfer-row"><CatIdentity cat={cat}/><select value={familyId} onChange={(event) => setFamilyId(event.target.value)}>{families.map((family) => <option value={family.id} key={family.id}>{family.label}</option>)}</select><button className="button tiny" onClick={() => void onMove(cat.id, familyId, date)}>{action}</button></div>;
+  return (
+    <div className="transfer-row">
+      <CatIdentity cat={cat} />
+      <select value={familyId} onChange={(event) => setFamilyId(event.target.value)}>
+        {families.map((family) => (
+          <option value={family.id} key={family.id}>
+            {family.label}
+          </option>
+        ))}
+      </select>
+      <button className="button tiny" onClick={() => void onMove(cat.id, familyId, date)}>
+        {action}
+      </button>
+    </div>
+  );
 }
 
 function FamilyForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => window.catApp.createFamily({ label: String(data.get("label")), courtesyTitle: String(data.get("courtesyTitle")), firstName: String(data.get("firstName")), lastName: String(data.get("lastName")), email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), maxCapacity: Number(data.get("maxCapacity")), acceptedProfiles: data.getAll("profiles") as CatProfile[], notes: String(data.get("notes")) }), "Famille d'accueil enregistrée.").then(done); };
-  return <Panel title="Nouvelle famille d'accueil"><form className="form-grid" onSubmit={submit}><Field label="Nom d'usage"><input name="label" placeholder="Ex. Maison des chatons"/></Field><Field label="Prénom"><input name="firstName"/></Field><Field label="Nom *"><input name="lastName" required/></Field><Field label="E-mail"><input name="email" type="email"/></Field><Field label="Téléphone"><input name="phone"/></Field><Field label="Capacité maximale *"><input name="maxCapacity" type="number" min="1" defaultValue="3" required/></Field><Field label="Adresse" wide><input name="address"/></Field><Field label="Profils acceptés *" wide><div className="checks profile-checks">{ALL_PROFILES.map((profile) => <label key={profile}><input name="profiles" type="checkbox" value={profile} defaultChecked={profile !== "BOTTLE_KITTEN"}/>{PROFILE_LABEL[profile]}</label>)}</div></Field><Field label="Notes" wide><textarea name="notes" rows={2}/></Field><div className="form-actions"><button className="button primary">Enregistrer</button></div></form></Panel>;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    void run(
+      () =>
+        window.catApp.createFamily({
+          label: String(data.get("label")),
+          courtesyTitle: String(data.get("courtesyTitle")),
+          firstName: String(data.get("firstName")),
+          lastName: String(data.get("lastName")),
+          email: String(data.get("email")),
+          phone: String(data.get("phone")),
+          address: String(data.get("address")),
+          maxCapacity: Number(data.get("maxCapacity")),
+          acceptedProfiles: data.getAll("profiles") as CatProfile[],
+          notes: String(data.get("notes")),
+        }),
+      "Famille d'accueil enregistrée.",
+    ).then(done);
+  };
+  return (
+    <Panel title="Nouvelle famille d'accueil">
+      <form className="form-grid" onSubmit={submit}>
+        <Field label="Nom d'usage">
+          <input name="label" placeholder="Ex. Maison des chatons" />
+        </Field>
+        <Field label="Prénom">
+          <input name="firstName" />
+        </Field>
+        <Field label="Nom *">
+          <input name="lastName" required />
+        </Field>
+        <Field label="E-mail">
+          <input name="email" type="email" />
+        </Field>
+        <Field label="Téléphone">
+          <input name="phone" />
+        </Field>
+        <Field label="Capacité maximale *">
+          <input name="maxCapacity" type="number" min="1" defaultValue="3" required />
+        </Field>
+        <Field label="Adresse" wide>
+          <input name="address" />
+        </Field>
+        <Field label="Profils acceptés *" wide>
+          <div className="checks profile-checks">
+            {ALL_PROFILES.map((profile) => (
+              <label key={profile}>
+                <input
+                  name="profiles"
+                  type="checkbox"
+                  value={profile}
+                  defaultChecked={profile !== "BOTTLE_KITTEN"}
+                />
+                {PROFILE_LABEL[profile]}
+              </label>
+            ))}
+          </div>
+        </Field>
+        <Field label="Notes" wide>
+          <textarea name="notes" rows={2} />
+        </Field>
+        <div className="form-actions">
+          <button className="button primary">Enregistrer</button>
+        </div>
+      </form>
+    </Panel>
+  );
 }
 
 function PlacementsPage({ snapshot, run }: PageProps) {
-  const candidates = snapshot.catViews.filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status));
-  const [catId, setCatId] = useState(""); const [showFull, setShowFull] = useState(false);
+  const candidates = snapshot.catViews.filter((cat) =>
+    ["FOSTERED", "AT_REFUGE"].includes(cat.status),
+  );
+  const [catId, setCatId] = useState("");
+  const [showFull, setShowFull] = useState(false);
   const selectedCat = snapshot.cats.find((cat) => cat.id === catId);
-  const occupancy = (familyId: string) => snapshot.fosterPlacements.filter((placement) => placement.familyId === familyId && !placement.endDate).length;
-  const visibleFamilies = snapshot.families.filter((family) => showFull || occupancy(family.id) < family.maxCapacity);
+  const occupancy = (familyId: string) =>
+    snapshot.fosterPlacements.filter(
+      (placement) => placement.familyId === familyId && !placement.endDate,
+    ).length;
+  const visibleFamilies = snapshot.families.filter(
+    (family) => showFull || occupancy(family.id) < family.maxCapacity,
+  );
   const active = snapshot.fosterPlacements.filter((placement) => !placement.endDate);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const input = { catId: String(data.get("catId")), familyId: String(data.get("familyId")), startDate: String(data.get("startDate")), notes: String(data.get("notes")) }; try { const assessment = await window.catApp.assessPlacement(input); if (!assessment.allowed) throw new Error(assessment.warnings.join(" ")); let overrideReason = ""; if (assessment.warnings.length) { if (!window.confirm(`${assessment.warnings.join("\n")}\n\nPlacer quand même ce chat ?`)) return; overrideReason = window.prompt("Motif obligatoire de la dérogation") ?? ""; if (!overrideReason.trim()) return; } await run(() => window.catApp.startPlacement({ ...input, overrideWarnings: assessment.warnings.length > 0, overrideReason }), "Placement enregistré."); } catch (error) { window.alert(errorMessage(error)); } };
-  const groups = snapshot.families.map((family) => ({ family, placements: active.filter((item) => item.familyId === family.id) })).filter((group) => group.placements.length);
-  return <div className="page-stack"><div className="two-column"><Panel title="Ajouter un chat à une famille"><form className="stack-form" onSubmit={submit}><Field label="Chat *"><select name="catId" required value={catId} onChange={(event) => setCatId(event.target.value)}><option value="">Choisir un chat</option>{candidates.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}</select></Field><label className="toggle-line"><input type="checkbox" checked={showFull} onChange={(event) => setShowFull(event.target.checked)}/>Afficher aussi les familles complètes</label><Field label="Famille d'accueil *"><select name="familyId" required defaultValue=""><option value="">Choisir une famille</option>{visibleFamilies.map((family) => { const mismatch = selectedCat && !family.acceptedProfiles.includes(selectedCat.profile); return <option key={family.id} value={family.id}>{family.label} · {occupancy(family.id)}/{family.maxCapacity}{mismatch ? " · profil hors critères ⚠" : ""}</option>; })}</select></Field><Field label="Date *"><FrenchDateInput name="startDate" defaultValue={localToday()} required/></Field><Field label="Notes"><textarea name="notes" rows={2}/></Field><button className="button primary full">Commencer l'accueil</button></form></Panel><Panel title="Règles appliquées"><ul className="rule-list"><li>Les familles à capacité maximale sont masquées par défaut.</li><li>Un profil non accepté déclenche une alerte.</li><li>Les vacances à la date choisie déclenchent une alerte.</li><li>Chaque dépassement reste possible avec un motif enregistré.</li></ul></Panel></div>
-    <Panel title={`Chats par famille · ${active.length}`}><div className="location-grid">{groups.map(({ family, placements }) => <article className="location-card" key={family.id}><div><FamilyLink family={family}/><span>{placements.length}/{family.maxCapacity}</span></div><div className="resident-records">{placements.map((placement) => { const cat = snapshot.cats.find((candidate) => candidate.id === placement.catId)!; return <div key={placement.id}><CatIdentity cat={cat}/><small>depuis {formatDate(placement.startDate)}</small><button className="button tiny" onClick={() => void run(() => window.catApp.endPlacement({ placementId: placement.id, endDate: localToday(), outcome: "Fin d'accueil" }), "Accueil terminé.")}>Terminer</button></div>; })}</div></article>)}</div></Panel></div>;
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const input = {
+      catId: String(data.get("catId")),
+      familyId: String(data.get("familyId")),
+      startDate: String(data.get("startDate")),
+      notes: String(data.get("notes")),
+    };
+    try {
+      const assessment = await window.catApp.assessPlacement(input);
+      if (!assessment.allowed) {
+        throw new Error(assessment.warnings.join(" "));
+      }
+      let overrideReason = "";
+      if (assessment.warnings.length) {
+        if (!window.confirm(`${assessment.warnings.join("\n")}\n\nPlacer quand même ce chat ?`)) {
+          return;
+        }
+        overrideReason = window.prompt("Motif obligatoire de la dérogation") ?? "";
+        if (!overrideReason.trim()) {
+          return;
+        }
+      }
+      await run(
+        () =>
+          window.catApp.startPlacement({
+            ...input,
+            overrideWarnings: assessment.warnings.length > 0,
+            overrideReason,
+          }),
+        "Placement enregistré.",
+      );
+    } catch (error) {
+      window.alert(errorMessage(error));
+    }
+  };
+  const groups = snapshot.families
+    .map((family) => ({ family, placements: active.filter((item) => item.familyId === family.id) }))
+    .filter((group) => group.placements.length);
+  return (
+    <div className="page-stack">
+      <div className="two-column">
+        <Panel title="Ajouter un chat à une famille">
+          <form className="stack-form" onSubmit={submit}>
+            <Field label="Chat *">
+              <select
+                name="catId"
+                required
+                value={catId}
+                onChange={(event) => setCatId(event.target.value)}
+              >
+                <option value="">Choisir un chat</option>
+                {candidates.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <label className="toggle-line">
+              <input
+                type="checkbox"
+                checked={showFull}
+                onChange={(event) => setShowFull(event.target.checked)}
+              />
+              Afficher aussi les familles complètes
+            </label>
+            <Field label="Famille d'accueil *">
+              <select name="familyId" required defaultValue="">
+                <option value="">Choisir une famille</option>
+                {visibleFamilies.map((family) => {
+                  const mismatch =
+                    selectedCat && !family.acceptedProfiles.includes(selectedCat.profile);
+                  return (
+                    <option key={family.id} value={family.id}>
+                      {family.label} · {occupancy(family.id)}/{family.maxCapacity}
+                      {mismatch ? " · profil hors critères ⚠" : ""}
+                    </option>
+                  );
+                })}
+              </select>
+            </Field>
+            <Field label="Date *">
+              <FrenchDateInput name="startDate" defaultValue={localToday()} required />
+            </Field>
+            <Field label="Notes">
+              <textarea name="notes" rows={2} />
+            </Field>
+            <button className="button primary full">Commencer l'accueil</button>
+          </form>
+        </Panel>
+        <Panel title="Règles appliquées">
+          <ul className="rule-list">
+            <li>Les familles à capacité maximale sont masquées par défaut.</li>
+            <li>Un profil non accepté déclenche une alerte.</li>
+            <li>Les vacances à la date choisie déclenchent une alerte.</li>
+            <li>Chaque dépassement reste possible avec un motif enregistré.</li>
+          </ul>
+        </Panel>
+      </div>
+      <Panel title={`Chats par famille · ${active.length}`}>
+        <div className="location-grid">
+          {groups.map(({ family, placements }) => (
+            <article className="location-card" key={family.id}>
+              <div>
+                <FamilyLink family={family} />
+                <span>
+                  {placements.length}/{family.maxCapacity}
+                </span>
+              </div>
+              <div className="resident-records">
+                {placements.map((placement) => {
+                  const cat = snapshot.cats.find((candidate) => candidate.id === placement.catId)!;
+                  return (
+                    <div key={placement.id}>
+                      <CatIdentity cat={cat} />
+                      <small>depuis {formatDate(placement.startDate)}</small>
+                      <button
+                        className="button tiny"
+                        onClick={() =>
+                          void run(
+                            () =>
+                              window.catApp.endPlacement({
+                                placementId: placement.id,
+                                endDate: localToday(),
+                                outcome: "Fin d'accueil",
+                              }),
+                            "Accueil terminé.",
+                          )
+                        }
+                      >
+                        Terminer
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
 }
 
 function AdoptersPage({ snapshot, run }: PageProps) {
   const [showForm, setShowForm] = useState(false);
-  return <div className="page-stack"><div className="section-heading"><p>{snapshot.adopters.length} adoptants définitifs</p><button className="button primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Fermer" : "+ Nouvel adoptant"}</button></div>{showForm && <AdopterForm run={run} done={() => setShowForm(false)}/>}<Panel title="Répertoire des adoptants"><div className="table-wrap"><table><thead><tr><th>Adoptant</th><th>Coordonnées</th><th>Adresse</th><th>Chats adoptés</th><th>Retours</th></tr></thead><tbody>{snapshot.adopters.map((adopter) => { const adoptions = snapshot.adoptions.filter((item) => item.adopterId === adopter.id); return <tr key={adopter.id}><td><strong>{adopter.label}</strong></td><td>{adopter.email || "—"}<span>{adopter.phone}</span></td><td>{adopter.address || "—"}</td><td>{adoptions.map((item) => snapshot.cats.find((cat) => cat.id === item.catId)).filter((cat): cat is AppSnapshot["cats"][number] => Boolean(cat)).map((cat) => <CatIdentity key={cat.id} cat={cat}/>)}{!adoptions.length && "—"}</td><td>{adoptions.filter((item) => item.status === "RETURNED").length}</td></tr>; })}</tbody></table></div></Panel></div>;
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <p>{snapshot.adopters.length} adoptants définitifs</p>
+        <button className="button primary" onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Fermer" : "+ Nouvel adoptant"}
+        </button>
+      </div>
+      {showForm && <AdopterForm run={run} done={() => setShowForm(false)} />}
+      <Panel title="Répertoire des adoptants">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Adoptant</th>
+                <th>Coordonnées</th>
+                <th>Adresse</th>
+                <th>Chats adoptés</th>
+                <th>Retours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshot.adopters.map((adopter) => {
+                const adoptions = snapshot.adoptions.filter(
+                  (item) => item.adopterId === adopter.id,
+                );
+                return (
+                  <tr key={adopter.id}>
+                    <td>
+                      <strong>{adopter.label}</strong>
+                    </td>
+                    <td>
+                      {adopter.email || "—"}
+                      <span>{adopter.phone}</span>
+                    </td>
+                    <td>{adopter.address || "—"}</td>
+                    <td>
+                      {adoptions
+                        .map((item) => snapshot.cats.find((cat) => cat.id === item.catId))
+                        .filter((cat): cat is AppSnapshot["cats"][number] => Boolean(cat))
+                        .map((cat) => (
+                          <CatIdentity key={cat.id} cat={cat} />
+                        ))}
+                      {!adoptions.length && "—"}
+                    </td>
+                    <td>{adoptions.filter((item) => item.status === "RETURNED").length}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
 }
 
 function AdopterForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => window.catApp.createAdopter({ courtesyTitle: String(data.get("courtesyTitle")), firstName: String(data.get("firstName")), lastName: String(data.get("lastName")), email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), notes: String(data.get("notes")) }), "Adoptant enregistré.").then(done); };
-  return <Panel title="Nouvel adoptant définitif"><form className="form-grid" onSubmit={submit}><Field label="Civilité"><select name="courtesyTitle"><option value="">—</option><option>M</option><option>Me</option></select></Field><Field label="Prénom *"><input name="firstName" required/></Field><Field label="Nom *"><input name="lastName" required/></Field><Field label="E-mail"><input name="email" type="email"/></Field><Field label="Téléphone"><input name="phone"/></Field><Field label="Adresse" wide><input name="address"/></Field><Field label="Notes" wide><textarea name="notes" rows={2}/></Field><div className="form-actions"><button className="button primary">Enregistrer</button></div></form></Panel>;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    void run(
+      () =>
+        window.catApp.createAdopter({
+          courtesyTitle: String(data.get("courtesyTitle")),
+          firstName: String(data.get("firstName")),
+          lastName: String(data.get("lastName")),
+          email: String(data.get("email")),
+          phone: String(data.get("phone")),
+          address: String(data.get("address")),
+          notes: String(data.get("notes")),
+        }),
+      "Adoptant enregistré.",
+    ).then(done);
+  };
+  return (
+    <Panel title="Nouvel adoptant définitif">
+      <form className="form-grid" onSubmit={submit}>
+        <Field label="Civilité">
+          <select name="courtesyTitle">
+            <option value="">—</option>
+            <option>M</option>
+            <option>Me</option>
+          </select>
+        </Field>
+        <Field label="Prénom *">
+          <input name="firstName" required />
+        </Field>
+        <Field label="Nom *">
+          <input name="lastName" required />
+        </Field>
+        <Field label="E-mail">
+          <input name="email" type="email" />
+        </Field>
+        <Field label="Téléphone">
+          <input name="phone" />
+        </Field>
+        <Field label="Adresse" wide>
+          <input name="address" />
+        </Field>
+        <Field label="Notes" wide>
+          <textarea name="notes" rows={2} />
+        </Field>
+        <div className="form-actions">
+          <button className="button primary">Enregistrer</button>
+        </div>
+      </form>
+    </Panel>
+  );
 }
 
 function AdoptionsPage({ snapshot, run }: PageProps) {
-  const eligibleCats = snapshot.catViews.filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status));
-  const [selectedCats, setSelectedCats] = useState<string[]>([]); const [catQuery, setCatQuery] = useState(""); const [mode, setMode] = useState<"existing" | "new">("existing");
-  const [showAdoptionForm, setShowAdoptionForm] = useState(false); const [sortMode, setSortMode] = useState<"date" | "cat">("date"); const [showAdopters, setShowAdopters] = useState(false);
+  const eligibleCats = snapshot.catViews.filter((cat) =>
+    ["FOSTERED", "AT_REFUGE"].includes(cat.status),
+  );
+  const [selectedCats, setSelectedCats] = useState<string[]>([]);
+  const [catQuery, setCatQuery] = useState("");
+  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [showAdoptionForm, setShowAdoptionForm] = useState(false);
+  const [sortMode, setSortMode] = useState<"date" | "cat">("date");
+  const [showAdopters, setShowAdopters] = useState(false);
   const [fosterTemplateId, setFosterTemplateId] = useState("");
   const template = snapshot.families.find((family) => family.id === fosterTemplateId);
   const catSearch = searchAdoptionCats(eligibleCats, snapshot.families, catQuery, 10);
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const selectedWarnings = selectedCats.flatMap((id) => { const cat = snapshot.cats.find((candidate) => candidate.id === id)!; return cat.adoptionEligibility === "ELIGIBLE" ? [] : [`${cat.name}: ${cat.adoptionBlockedReason || "adoption non autorisée"}`]; }); if (selectedWarnings.length && !window.confirm(`Attention :\n${selectedWarnings.join("\n")}\n\nEnregistrer quand même cette adoption ?`)) return; const adoption = { catIds: selectedCats, adoptionDate: String(data.get("adoptionDate")), partner: String(data.get("partner")), adoptionDayId: String(data.get("adoptionDayId")), notes: String(data.get("notes")), overrideWarnings: selectedWarnings.length > 0 }; const operation = mode === "new" ? () => window.catApp.createAdoptionWithNewFamily({ adoption, family: { firstName: String(data.get("firstName")), lastName: String(data.get("lastName")), email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), notes: fosterTemplateId ? "Adoptant créé depuis une famille d'accueil." : "Créé pendant l'adoption." } }) : () => window.catApp.createAdoption({ ...adoption, adopterId: String(data.get("adopterId")) }); void run(operation, "Adoption et contact définitif enregistrés.").then(() => setSelectedCats([])); };
-  const all = [...snapshot.adoptions].sort((a, b) => sortMode === "date" ? b.adoptionDate.localeCompare(a.adoptionDate) : (snapshot.cats.find((cat) => cat.id === a.catId)?.name ?? "").localeCompare(snapshot.cats.find((cat) => cat.id === b.catId)?.name ?? "", "fr") || b.adoptionDate.localeCompare(a.adoptionDate));
-  return <div className="page-stack"><div className="section-heading"><p>Adoptions et contacts adoptants réunis</p><div className="heading-actions"><button className="button secondary" onClick={() => setShowAdopters(!showAdopters)}>{showAdopters ? "Masquer les adoptants" : `Adoptants (${snapshot.adopters.length})`}</button><button className="button primary" onClick={() => setShowAdoptionForm(!showAdoptionForm)}>{showAdoptionForm ? "Fermer" : "+ Faire adopter un chat"}</button></div></div>{showAdopters && <AdoptersPage snapshot={snapshot} run={run}/>} {showAdoptionForm && <Panel title="Enregistrer une adoption"><form className="adoption-form" onSubmit={submit}><div className="stack-form"><Field label="Rechercher les chats *"><div className="cat-picker"><div className="selected-cats">{selectedCats.map((id) => <button type="button" key={id} onClick={() => setSelectedCats(selectedCats.filter((value) => value !== id))}>{snapshot.cats.find((cat) => cat.id === id)?.name} ×</button>)}</div><div className="cat-search"><span>⌕</span><input value={catQuery} onChange={(event) => setCatQuery(event.target.value)} placeholder="Nom, ICAD ou famille…"/><small>{catSearch.matches.length} résultat(s)</small></div><div className="choice-list">{catSearch.visible.map((cat) => <label key={cat.id} className={selectedCats.includes(cat.id) ? "chosen" : ""}><input type="checkbox" checked={selectedCats.includes(cat.id)} onChange={(event) => setSelectedCats(event.target.checked ? [...selectedCats, cat.id] : selectedCats.filter((id) => id !== cat.id))}/><span className="mini-avatar">{cat.name[0]}</span><CatIdentity cat={cat}/>{catWarnings(cat).length > 0 && <b title={catWarnings(cat).join(" · ")}>⚠</b>}</label>)}</div>{catSearch.matches.length > 10 && <small className="picker-hint">10 résultats affichés; affinez la recherche pour les autres.</small>}</div></Field></div>
-    <div className="stack-form"><div className="adopter-tabs"><button type="button" className={mode === "existing" ? "active" : ""} onClick={() => setMode("existing")}>Adoptant connu</button><button type="button" className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Nouvel adoptant</button></div>{mode === "existing" ? <Field label="Adoptant définitif *"><select name="adopterId" required defaultValue=""><option value="">Choisir</option>{snapshot.adopters.map((adopter) => <option key={adopter.id} value={adopter.id}>{adopter.label}</option>)}</select></Field> : <><Field label="Reprendre une famille d'accueil"><select value={fosterTemplateId} onChange={(event) => setFosterTemplateId(event.target.value)}><option value="">Saisie libre</option>{snapshot.families.map((family) => <option value={family.id} key={family.id}>{family.label}</option>)}</select></Field><div className="inline-fields"><Field label="Prénom *"><input name="firstName" required defaultValue={template?.firstName} key={`first-${template?.id}`}/></Field><Field label="Nom *"><input name="lastName" required defaultValue={template?.lastName} key={`last-${template?.id}`}/></Field></div><Field label="E-mail"><input name="email" type="email" defaultValue={template?.email} key={`email-${template?.id}`}/></Field><Field label="Téléphone"><input name="phone" defaultValue={template?.phone} key={`phone-${template?.id}`}/></Field><Field label="Adresse"><input name="address" defaultValue={template?.address} key={`address-${template?.id}`}/></Field></>}<div className="inline-fields"><Field label="Date *"><FrenchDateInput name="adoptionDate" defaultValue={localToday()} required/></Field><Field label="Journée associée"><select name="adoptionDayId"><option value="">Aucune</option>{snapshot.adoptionDays.map((day) => <option value={day.id} key={day.id}>{day.name} · {formatDate(day.startDate)}</option>)}</select></Field></div><Field label="Lieu partenaire"><select name="partner"><option value="">Aucun</option>{snapshot.partnerPlaces.map((place) => <option key={place.id} value={place.name}>{place.name}</option>)}</select></Field><Field label="Notes"><textarea name="notes" rows={2}/></Field><button className="button primary full" disabled={!selectedCats.length}>Confirmer l'adoption</button></div></form></Panel>}
-    <Panel title={`Suivi des adoptions · ${all.length}`} action={<label className="inline-control">Lister par <select value={sortMode} onChange={(event) => setSortMode(event.target.value as "date" | "cat")}><option value="date">dernière date d'adoption</option><option value="cat">chat</option></select></label>}><AdoptionTable adoptions={all} snapshot={snapshot} run={run}/></Panel></div>;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const selectedWarnings = selectedCats.flatMap((id) => {
+      const cat = snapshot.cats.find((candidate) => candidate.id === id)!;
+      return cat.adoptionEligibility === "ELIGIBLE"
+        ? []
+        : [`${cat.name}: ${cat.adoptionBlockedReason || "adoption non autorisée"}`];
+    });
+    if (
+      selectedWarnings.length &&
+      !window.confirm(
+        `Attention :\n${selectedWarnings.join("\n")}\n\nEnregistrer quand même cette adoption ?`,
+      )
+    ) {
+      return;
+    }
+    const adoption = {
+      catIds: selectedCats,
+      adoptionDate: String(data.get("adoptionDate")),
+      partner: String(data.get("partner")),
+      adoptionDayId: String(data.get("adoptionDayId")),
+      notes: String(data.get("notes")),
+      overrideWarnings: selectedWarnings.length > 0,
+    };
+    const operation =
+      mode === "new"
+        ? () =>
+            window.catApp.createAdoptionWithNewFamily({
+              adoption,
+              family: {
+                firstName: String(data.get("firstName")),
+                lastName: String(data.get("lastName")),
+                email: String(data.get("email")),
+                phone: String(data.get("phone")),
+                address: String(data.get("address")),
+                notes: fosterTemplateId
+                  ? "Adoptant créé depuis une famille d'accueil."
+                  : "Créé pendant l'adoption.",
+              },
+            })
+        : () =>
+            window.catApp.createAdoption({ ...adoption, adopterId: String(data.get("adopterId")) });
+    void run(operation, "Adoption et contact définitif enregistrés.").then(() =>
+      setSelectedCats([]),
+    );
+  };
+  const all = [...snapshot.adoptions].sort((a, b) =>
+    sortMode === "date"
+      ? b.adoptionDate.localeCompare(a.adoptionDate)
+      : (snapshot.cats.find((cat) => cat.id === a.catId)?.name ?? "").localeCompare(
+          snapshot.cats.find((cat) => cat.id === b.catId)?.name ?? "",
+          "fr",
+        ) || b.adoptionDate.localeCompare(a.adoptionDate),
+  );
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <p>Adoptions et contacts adoptants réunis</p>
+        <div className="heading-actions">
+          <button className="button secondary" onClick={() => setShowAdopters(!showAdopters)}>
+            {showAdopters ? "Masquer les adoptants" : `Adoptants (${snapshot.adopters.length})`}
+          </button>
+          <button className="button primary" onClick={() => setShowAdoptionForm(!showAdoptionForm)}>
+            {showAdoptionForm ? "Fermer" : "+ Faire adopter un chat"}
+          </button>
+        </div>
+      </div>
+      {showAdopters && <AdoptersPage snapshot={snapshot} run={run} />}{" "}
+      {showAdoptionForm && (
+        <Panel title="Enregistrer une adoption">
+          <form className="adoption-form" onSubmit={submit}>
+            <div className="stack-form">
+              <Field label="Rechercher les chats *">
+                <div className="cat-picker">
+                  <div className="selected-cats">
+                    {selectedCats.map((id) => (
+                      <button
+                        type="button"
+                        key={id}
+                        onClick={() =>
+                          setSelectedCats(selectedCats.filter((value) => value !== id))
+                        }
+                      >
+                        {snapshot.cats.find((cat) => cat.id === id)?.name} ×
+                      </button>
+                    ))}
+                  </div>
+                  <div className="cat-search">
+                    <span>⌕</span>
+                    <input
+                      value={catQuery}
+                      onChange={(event) => setCatQuery(event.target.value)}
+                      placeholder="Nom, ICAD ou famille…"
+                    />
+                    <small>{catSearch.matches.length} résultat(s)</small>
+                  </div>
+                  <div className="choice-list">
+                    {catSearch.visible.map((cat) => (
+                      <label key={cat.id} className={selectedCats.includes(cat.id) ? "chosen" : ""}>
+                        <input
+                          type="checkbox"
+                          checked={selectedCats.includes(cat.id)}
+                          onChange={(event) =>
+                            setSelectedCats(
+                              event.target.checked
+                                ? [...selectedCats, cat.id]
+                                : selectedCats.filter((id) => id !== cat.id),
+                            )
+                          }
+                        />
+                        <span className="mini-avatar">{cat.name[0]}</span>
+                        <CatIdentity cat={cat} />
+                        {catWarnings(cat).length > 0 && (
+                          <b title={catWarnings(cat).join(" · ")}>⚠</b>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                  {catSearch.matches.length > 10 && (
+                    <small className="picker-hint">
+                      10 résultats affichés; affinez la recherche pour les autres.
+                    </small>
+                  )}
+                </div>
+              </Field>
+            </div>
+            <div className="stack-form">
+              <div className="adopter-tabs">
+                <button
+                  type="button"
+                  className={mode === "existing" ? "active" : ""}
+                  onClick={() => setMode("existing")}
+                >
+                  Adoptant connu
+                </button>
+                <button
+                  type="button"
+                  className={mode === "new" ? "active" : ""}
+                  onClick={() => setMode("new")}
+                >
+                  Nouvel adoptant
+                </button>
+              </div>
+              {mode === "existing" ? (
+                <Field label="Adoptant définitif *">
+                  <select name="adopterId" required defaultValue="">
+                    <option value="">Choisir</option>
+                    {snapshot.adopters.map((adopter) => (
+                      <option key={adopter.id} value={adopter.id}>
+                        {adopter.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : (
+                <>
+                  <Field label="Reprendre une famille d'accueil">
+                    <select
+                      value={fosterTemplateId}
+                      onChange={(event) => setFosterTemplateId(event.target.value)}
+                    >
+                      <option value="">Saisie libre</option>
+                      {snapshot.families.map((family) => (
+                        <option value={family.id} key={family.id}>
+                          {family.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <div className="inline-fields">
+                    <Field label="Prénom *">
+                      <input
+                        name="firstName"
+                        required
+                        defaultValue={template?.firstName}
+                        key={`first-${template?.id}`}
+                      />
+                    </Field>
+                    <Field label="Nom *">
+                      <input
+                        name="lastName"
+                        required
+                        defaultValue={template?.lastName}
+                        key={`last-${template?.id}`}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="E-mail">
+                    <input
+                      name="email"
+                      type="email"
+                      defaultValue={template?.email}
+                      key={`email-${template?.id}`}
+                    />
+                  </Field>
+                  <Field label="Téléphone">
+                    <input
+                      name="phone"
+                      defaultValue={template?.phone}
+                      key={`phone-${template?.id}`}
+                    />
+                  </Field>
+                  <Field label="Adresse">
+                    <input
+                      name="address"
+                      defaultValue={template?.address}
+                      key={`address-${template?.id}`}
+                    />
+                  </Field>
+                </>
+              )}
+              <div className="inline-fields">
+                <Field label="Date *">
+                  <FrenchDateInput name="adoptionDate" defaultValue={localToday()} required />
+                </Field>
+                <Field label="Journée associée">
+                  <select name="adoptionDayId">
+                    <option value="">Aucune</option>
+                    {snapshot.adoptionDays.map((day) => (
+                      <option value={day.id} key={day.id}>
+                        {day.name} · {formatDate(day.startDate)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Lieu partenaire">
+                <select name="partner">
+                  <option value="">Aucun</option>
+                  {snapshot.partnerPlaces.map((place) => (
+                    <option key={place.id} value={place.name}>
+                      {place.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Notes">
+                <textarea name="notes" rows={2} />
+              </Field>
+              <button className="button primary full" disabled={!selectedCats.length}>
+                Confirmer l'adoption
+              </button>
+            </div>
+          </form>
+        </Panel>
+      )}
+      <Panel
+        title={`Suivi des adoptions · ${all.length}`}
+        action={
+          <label className="inline-control">
+            Lister par{" "}
+            <select
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as "date" | "cat")}
+            >
+              <option value="date">dernière date d'adoption</option>
+              <option value="cat">chat</option>
+            </select>
+          </label>
+        }
+      >
+        <AdoptionTable adoptions={all} snapshot={snapshot} run={run} />
+      </Panel>
+    </div>
+  );
 }
 
-function AdoptionTable({ adoptions, snapshot, run }: { adoptions: Adoption[]; snapshot: AppSnapshot; run: PageProps["run"] }) {
-  return <div className="table-wrap"><table className="adoption-table"><thead><tr><th>Chat</th><th>État du chat</th><th>Adoptant définitif</th><th>Coordonnées</th><th>Adoption</th><th>Statut</th><th></th></tr></thead><tbody>{adoptions.map((adoption) => { const cat = snapshot.cats.find((item) => item.id === adoption.catId)!; const adopter = snapshot.adopters.find((item) => item.id === adoption.adopterId); const warnings = catWarnings(cat); return <tr key={adoption.id}><td><CatIdentity cat={cat}/></td><td>{warnings.length ? <span className="warning-badge" title={warnings.join(" · ")}>⚠ {warnings.join(" · ")}</span> : <span className="ok-badge">Dossier OK</span>}</td><td><strong>{adopter?.label ?? "Adoptant inconnu"}</strong><span>{adopter?.address}</span></td><td>{adopter?.email || "—"}<span>{adopter?.phone}</span></td><td>{formatDate(adoption.adoptionDate)}<span>{adoption.partner}</span></td><td><span className={`status ${adoption.status === "ACTIVE" ? "adopted" : "returned"}`}>{adoption.status === "ACTIVE" ? "Active" : `Retour ${formatDate(adoption.endedAt)}`}</span></td><td>{adoption.status === "ACTIVE" && <button className="button tiny danger" onClick={() => { const notes = window.prompt("Motif du retour") ?? ""; const toRefuge = window.confirm("Envoyer directement ce chat au refuge ?"); void run(() => window.catApp.returnAdoption({ adoptionId: adoption.id, date: localToday(), notes, refugeZoneId: toRefuge ? snapshot.refugeZones[0]?.id : undefined }), toRefuge ? "Retour enregistré et chat envoyé au refuge." : "Retour enregistré."); }}>Retour</button>}</td></tr>; })}</tbody></table></div>;
+function AdoptionTable({
+  adoptions,
+  snapshot,
+  run,
+}: {
+  adoptions: Adoption[];
+  snapshot: AppSnapshot;
+  run: PageProps["run"];
+}) {
+  return (
+    <div className="table-wrap">
+      <table className="adoption-table">
+        <thead>
+          <tr>
+            <th>Chat</th>
+            <th>État du chat</th>
+            <th>Adoptant définitif</th>
+            <th>Coordonnées</th>
+            <th>Adoption</th>
+            <th>Statut</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {adoptions.map((adoption) => {
+            const cat = snapshot.cats.find((item) => item.id === adoption.catId)!;
+            const adopter = snapshot.adopters.find((item) => item.id === adoption.adopterId);
+            const warnings = catWarnings(cat);
+            return (
+              <tr key={adoption.id}>
+                <td>
+                  <CatIdentity cat={cat} />
+                </td>
+                <td>
+                  {warnings.length ? (
+                    <span className="warning-badge" title={warnings.join(" · ")}>
+                      ⚠ {warnings.join(" · ")}
+                    </span>
+                  ) : (
+                    <span className="ok-badge">Dossier OK</span>
+                  )}
+                </td>
+                <td>
+                  <strong>{adopter?.label ?? "Adoptant inconnu"}</strong>
+                  <span>{adopter?.address}</span>
+                </td>
+                <td>
+                  {adopter?.email || "—"}
+                  <span>{adopter?.phone}</span>
+                </td>
+                <td>
+                  {formatDate(adoption.adoptionDate)}
+                  <span>{adoption.partner}</span>
+                </td>
+                <td>
+                  <span
+                    className={`status ${adoption.status === "ACTIVE" ? "adopted" : "returned"}`}
+                  >
+                    {adoption.status === "ACTIVE"
+                      ? "Active"
+                      : `Retour ${formatDate(adoption.endedAt)}`}
+                  </span>
+                </td>
+                <td>
+                  {adoption.status === "ACTIVE" && (
+                    <button
+                      className="button tiny danger"
+                      onClick={() => {
+                        const notes = window.prompt("Motif du retour") ?? "";
+                        const toRefuge = window.confirm("Envoyer directement ce chat au refuge ?");
+                        void run(
+                          () =>
+                            window.catApp.returnAdoption({
+                              adoptionId: adoption.id,
+                              date: localToday(),
+                              notes,
+                              refugeZoneId: toRefuge ? snapshot.refugeZones[0]?.id : undefined,
+                            }),
+                          toRefuge
+                            ? "Retour enregistré et chat envoyé au refuge."
+                            : "Retour enregistré.",
+                        );
+                      }}
+                    >
+                      Retour
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-function AdoptionDaysPage({ snapshot, run, setNotice }: PageProps & { setNotice: (notice: Notice | null) => void }) {
-  const [selectedDayId, setSelectedDayId] = useState(snapshot.adoptionDays[0]?.id ?? ""); const [suggestions, setSuggestions] = useState<AdoptionDaySuggestionGroup[]>([]); const [showForm, setShowForm] = useState(false);
+function AdoptionDaysPage({
+  snapshot,
+  run,
+  setNotice,
+}: PageProps & { setNotice: (notice: Notice | null) => void }) {
+  const [selectedDayId, setSelectedDayId] = useState(snapshot.adoptionDays[0]?.id ?? "");
+  const [suggestions, setSuggestions] = useState<AdoptionDaySuggestionGroup[]>([]);
+  const [showForm, setShowForm] = useState(false);
   const [showPartners, setShowPartners] = useState(false);
-  useEffect(() => { if (!selectedDayId) { setSuggestions([]); return; } window.catApp.getAdoptionDaySuggestions(selectedDayId).then(setSuggestions).catch((error) => setNotice({ kind: "error", text: errorMessage(error) })); }, [selectedDayId, snapshot.adoptionDayCats.length]);
-  const add = (catIds: string[]) => void run(() => window.catApp.addCatsToAdoptionDay({ adoptionDayId: selectedDayId, catIds }), `${catIds.length} chat(s) ajouté(s) à l'événement.`);
-  const selectedDay = snapshot.adoptionDays.find((day) => day.id === selectedDayId); const registered = snapshot.adoptionDayCats.filter((item) => item.adoptionDayId === selectedDayId && item.status !== "WITHDRAWN");
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const partner = String(data.get("partner")); const startDate = String(data.get("startDate")); const endDate = String(data.get("endDate")); const name = `${partner || "Association"} · ${formatDate(startDate)}${endDate !== startDate ? `–${formatDate(endDate)}` : ""}`; void run(() => window.catApp.createAdoptionDay({ name, startDate, endDate, partner, location: String(data.get("location")), notes: String(data.get("notes")) }), "Événement d'adoption créé.").then(() => setShowForm(false)); };
-  return <div className="page-stack"><div className="section-heading"><p>Événements, réservations et validations d'adoption</p><div className="heading-actions"><button className="button secondary" onClick={() => setShowPartners(!showPartners)}>Lieux partenaires</button><button className="button primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Fermer" : "+ Créer un événement"}</button></div></div>{showPartners && <PartnerPlaces snapshot={snapshot} run={run}/>} {showForm && <Panel title="Nouvelle journée / fête d'adoption"><form className="form-grid" onSubmit={submit}><Field label="Lieu partenaire"><select name="partner"><option value="">Association</option>{snapshot.partnerPlaces.map((place) => <option value={place.name} key={place.id}>{place.name}</option>)}</select></Field><Field label="Début *"><FrenchDateInput name="startDate" required/></Field><Field label="Fin *"><FrenchDateInput name="endDate" required/></Field><Field label="Emplacement précis"><input name="location"/></Field><Field label="Notes"><input name="notes"/></Field><div className="form-actions"><button className="button primary">Créer sous le nom « Partenaire · dates »</button></div></form></Panel>}
-    <div className="event-tabs">{snapshot.adoptionDays.map((day) => <button key={day.id} className={selectedDayId === day.id ? "active" : ""} onClick={() => setSelectedDayId(day.id)}><strong>{day.name}</strong><span>{formatDate(day.startDate)}{day.endDate !== day.startDate ? ` → ${formatDate(day.endDate)}` : ""}</span></button>)}</div>
-    {selectedDay && <><section className="event-hero"><div><span>{selectedDay.partner || "Événement association"}</span><h2>{selectedDay.name}</h2><p>{selectedDay.location} · {formatDate(selectedDay.startDate)} au {formatDate(selectedDay.endDate)}</p></div><strong>{registered.length}<small>chats inscrits</small></strong></section><div className="two-column event-columns"><Panel title="Suggestions par famille / zone"><div className="suggestion-groups">{suggestions.map((group) => <article key={`${group.locationType}-${group.locationId}`}><header><div><LocationHeading group={group} snapshot={snapshot}/><span>{group.cats.length} chats adoptables</span></div><button className="button tiny" onClick={() => add(group.cats.map((cat) => cat.catId))}>+ Tout le cheptel</button></header><div>{group.cats.map((item) => { const cat = snapshot.catViews.find((candidate) => candidate.id === item.catId)!; return <button className="suggested-cat" key={item.catId} onClick={() => add([item.catId])}><CatIdentity cat={cat}/>{item.warnings.length > 0 && <b title={item.warnings.join(" · ")}>⚠</b>}<i>+</i></button>; })}</div></article>)}{!suggestions.length && <Empty text="Aucune autre suggestion adoptable."/>}</div></Panel><Panel title="Chats prévus et réservations"><div className="registered-cats">{registered.map((item) => <AdoptionDayRegistration key={item.id} registration={item} day={selectedDay} snapshot={snapshot} run={run}/>)}{!registered.length && <Empty text="Ajoutez des chats depuis les suggestions."/>}</div></Panel></div></>}
-  </div>;
+  useEffect(() => {
+    if (!selectedDayId) {
+      setSuggestions([]);
+      return;
+    }
+    window.catApp
+      .getAdoptionDaySuggestions(selectedDayId)
+      .then(setSuggestions)
+      .catch((error) => setNotice({ kind: "error", text: errorMessage(error) }));
+  }, [selectedDayId, snapshot.adoptionDayCats.length]);
+  const add = (catIds: string[]) =>
+    void run(
+      () => window.catApp.addCatsToAdoptionDay({ adoptionDayId: selectedDayId, catIds }),
+      `${catIds.length} chat(s) ajouté(s) à l'événement.`,
+    );
+  const selectedDay = snapshot.adoptionDays.find((day) => day.id === selectedDayId);
+  const registered = snapshot.adoptionDayCats.filter(
+    (item) => item.adoptionDayId === selectedDayId && item.status !== "WITHDRAWN",
+  );
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const partner = String(data.get("partner"));
+    const startDate = String(data.get("startDate"));
+    const endDate = String(data.get("endDate"));
+    const name = `${partner || "Association"} · ${formatDate(startDate)}${endDate !== startDate ? `–${formatDate(endDate)}` : ""}`;
+    void run(
+      () =>
+        window.catApp.createAdoptionDay({
+          name,
+          startDate,
+          endDate,
+          partner,
+          location: String(data.get("location")),
+          notes: String(data.get("notes")),
+        }),
+      "Événement d'adoption créé.",
+    ).then(() => setShowForm(false));
+  };
+  return (
+    <div className="page-stack">
+      <div className="section-heading">
+        <p>Événements, réservations et validations d'adoption</p>
+        <div className="heading-actions">
+          <button className="button secondary" onClick={() => setShowPartners(!showPartners)}>
+            Lieux partenaires
+          </button>
+          <button className="button primary" onClick={() => setShowForm(!showForm)}>
+            {showForm ? "Fermer" : "+ Créer un événement"}
+          </button>
+        </div>
+      </div>
+      {showPartners && <PartnerPlaces snapshot={snapshot} run={run} />}{" "}
+      {showForm && (
+        <Panel title="Nouvelle journée / fête d'adoption">
+          <form className="form-grid" onSubmit={submit}>
+            <Field label="Lieu partenaire">
+              <select name="partner">
+                <option value="">Association</option>
+                {snapshot.partnerPlaces.map((place) => (
+                  <option value={place.name} key={place.id}>
+                    {place.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Début *">
+              <FrenchDateInput name="startDate" required />
+            </Field>
+            <Field label="Fin *">
+              <FrenchDateInput name="endDate" required />
+            </Field>
+            <Field label="Emplacement précis">
+              <input name="location" />
+            </Field>
+            <Field label="Notes">
+              <input name="notes" />
+            </Field>
+            <div className="form-actions">
+              <button className="button primary">Créer sous le nom « Partenaire · dates »</button>
+            </div>
+          </form>
+        </Panel>
+      )}
+      <div className="event-tabs">
+        {snapshot.adoptionDays.map((day) => (
+          <button
+            key={day.id}
+            className={selectedDayId === day.id ? "active" : ""}
+            onClick={() => setSelectedDayId(day.id)}
+          >
+            <strong>{day.name}</strong>
+            <span>
+              {formatDate(day.startDate)}
+              {day.endDate !== day.startDate ? ` → ${formatDate(day.endDate)}` : ""}
+            </span>
+          </button>
+        ))}
+      </div>
+      {selectedDay && (
+        <>
+          <section className="event-hero">
+            <div>
+              <span>{selectedDay.partner || "Événement association"}</span>
+              <h2>{selectedDay.name}</h2>
+              <p>
+                {selectedDay.location} · {formatDate(selectedDay.startDate)} au{" "}
+                {formatDate(selectedDay.endDate)}
+              </p>
+            </div>
+            <strong>
+              {registered.length}
+              <small>chats inscrits</small>
+            </strong>
+          </section>
+          <div className="two-column event-columns">
+            <Panel title="Suggestions par famille / zone">
+              <div className="suggestion-groups">
+                {suggestions.map((group) => (
+                  <article key={`${group.locationType}-${group.locationId}`}>
+                    <header>
+                      <div>
+                        <LocationHeading group={group} snapshot={snapshot} />
+                        <span>{group.cats.length} chats adoptables</span>
+                      </div>
+                      <button
+                        className="button tiny"
+                        onClick={() => add(group.cats.map((cat) => cat.catId))}
+                      >
+                        + Tout le cheptel
+                      </button>
+                    </header>
+                    <div>
+                      {group.cats.map((item) => {
+                        const cat = snapshot.catViews.find(
+                          (candidate) => candidate.id === item.catId,
+                        )!;
+                        return (
+                          <button
+                            className="suggested-cat"
+                            key={item.catId}
+                            onClick={() => add([item.catId])}
+                          >
+                            <CatIdentity cat={cat} />
+                            {item.warnings.length > 0 && <b title={item.warnings.join(" · ")}>⚠</b>}
+                            <i>+</i>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </article>
+                ))}
+                {!suggestions.length && <Empty text="Aucune autre suggestion adoptable." />}
+              </div>
+            </Panel>
+            <Panel title="Chats prévus et réservations">
+              <div className="registered-cats">
+                {registered.map((item) => (
+                  <AdoptionDayRegistration
+                    key={item.id}
+                    registration={item}
+                    day={selectedDay}
+                    snapshot={snapshot}
+                    run={run}
+                  />
+                ))}
+                {!registered.length && <Empty text="Ajoutez des chats depuis les suggestions." />}
+              </div>
+            </Panel>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
-function AdoptionDayRegistration({ registration, day, snapshot, run }: { registration: AppSnapshot["adoptionDayCats"][number]; day: AppSnapshot["adoptionDays"][number]; snapshot: AppSnapshot; run: PageProps["run"] }) {
+function AdoptionDayRegistration({
+  registration,
+  day,
+  snapshot,
+  run,
+}: {
+  registration: AppSnapshot["adoptionDayCats"][number];
+  day: AppSnapshot["adoptionDays"][number];
+  snapshot: AppSnapshot;
+  run: PageProps["run"];
+}) {
   const cat = snapshot.catViews.find((candidate) => candidate.id === registration.catId)!;
   const [adopterId, setAdopterId] = useState(registration.adopterId || "");
   const bookedBy = snapshot.adopters.find((adopter) => adopter.id === registration.adopterId);
-  const validatedAdopter = bookedBy ?? snapshot.adopters.find((adopter) => adopter.id === snapshot.adoptions.find((adoption) => adoption.catId === cat.id && adoption.adoptionDayId === day.id)?.adopterId);
-  const reserve = () => void run(() => window.catApp.bookCatForAdoption({ registrationId: registration.id, adopterId, bookedAt: localToday() }), "Chat réservé pour cette famille.");
-  const validate = () => registration.adopterId
-    ? void run(() => window.catApp.confirmAdoptionBooking({ registrationId: registration.id, adoptionDate: localToday() }), "Réservation confirmée : adoption validée.")
-    : void run(() => window.catApp.createAdoption({ catIds: [cat.id], adopterId, adoptionDate: localToday(), adoptionDayId: day.id, partner: day.partner }), "Adoption validée directement.");
-  if (registration.status === "ADOPTED") return <div className="registration-row"><span className="mini-avatar">{cat.name[0]}</span><div><CatIdentity cat={cat}/><b className="booking-badge">✓ Adoption validée{validatedAdopter ? ` · ${validatedAdopter.label}` : ""}</b></div></div>;
-  return <div className="registration-row"><span className="mini-avatar">{cat.name[0]}</span><div><CatIdentity cat={cat}/><small>{cat.currentLocationLabel || STATUS_LABEL[cat.status]}</small>{bookedBy && <b className="booking-badge">Réservé par {bookedBy.label} le {formatDate(registration.bookedAt)}</b>}</div><div className="registration-actions"><select value={adopterId} onChange={(event) => setAdopterId(event.target.value)}><option value="">Choisir une famille adoptante</option>{snapshot.adopters.map((adopter) => <option value={adopter.id} key={adopter.id}>{adopter.label}</option>)}</select>{!registration.adopterId && <button className="button tiny" disabled={!adopterId} onClick={reserve}>Réserver</button>}<button className="button tiny primary" disabled={!adopterId && !registration.adopterId} onClick={validate}>{registration.adopterId ? "Confirmer la réservation" : "Valider l'adoption"}</button><button className="icon-button danger" title="Retirer ce chat de la journée" onClick={() => void run(() => window.catApp.withdrawCatFromAdoptionDay(registration.id), "Chat retiré de la journée d'adoption.")}>×</button></div></div>;
+  const validatedAdopter =
+    bookedBy ??
+    snapshot.adopters.find(
+      (adopter) =>
+        adopter.id ===
+        snapshot.adoptions.find(
+          (adoption) => adoption.catId === cat.id && adoption.adoptionDayId === day.id,
+        )?.adopterId,
+    );
+  const reserve = () =>
+    void run(
+      () =>
+        window.catApp.bookCatForAdoption({
+          registrationId: registration.id,
+          adopterId,
+          bookedAt: localToday(),
+        }),
+      "Chat réservé pour cette famille.",
+    );
+  const validate = () =>
+    registration.adopterId
+      ? void run(
+          () =>
+            window.catApp.confirmAdoptionBooking({
+              registrationId: registration.id,
+              adoptionDate: localToday(),
+            }),
+          "Réservation confirmée : adoption validée.",
+        )
+      : void run(
+          () =>
+            window.catApp.createAdoption({
+              catIds: [cat.id],
+              adopterId,
+              adoptionDate: localToday(),
+              adoptionDayId: day.id,
+              partner: day.partner,
+            }),
+          "Adoption validée directement.",
+        );
+  if (registration.status === "ADOPTED") {
+    return (
+      <div className="registration-row">
+        <span className="mini-avatar">{cat.name[0]}</span>
+        <div>
+          <CatIdentity cat={cat} />
+          <b className="booking-badge">
+            ✓ Adoption validée{validatedAdopter ? ` · ${validatedAdopter.label}` : ""}
+          </b>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="registration-row">
+      <span className="mini-avatar">{cat.name[0]}</span>
+      <div>
+        <CatIdentity cat={cat} />
+        <small>{cat.currentLocationLabel || STATUS_LABEL[cat.status]}</small>
+        {bookedBy && (
+          <b className="booking-badge">
+            Réservé par {bookedBy.label} le {formatDate(registration.bookedAt)}
+          </b>
+        )}
+      </div>
+      <div className="registration-actions">
+        <select value={adopterId} onChange={(event) => setAdopterId(event.target.value)}>
+          <option value="">Choisir une famille adoptante</option>
+          {snapshot.adopters.map((adopter) => (
+            <option value={adopter.id} key={adopter.id}>
+              {adopter.label}
+            </option>
+          ))}
+        </select>
+        {!registration.adopterId && (
+          <button className="button tiny" disabled={!adopterId} onClick={reserve}>
+            Réserver
+          </button>
+        )}
+        <button
+          className="button tiny primary"
+          disabled={!adopterId && !registration.adopterId}
+          onClick={validate}
+        >
+          {registration.adopterId ? "Confirmer la réservation" : "Valider l'adoption"}
+        </button>
+        <button
+          className="icon-button danger"
+          title="Retirer ce chat de la journée"
+          onClick={() =>
+            void run(
+              () => window.catApp.withdrawCatFromAdoptionDay(registration.id),
+              "Chat retiré de la journée d'adoption.",
+            )
+          }
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function PartnerPlaces({ snapshot, run }: PageProps) {
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); void run(() => window.catApp.createPartnerPlace({ name: String(data.get("name")), address: String(data.get("address")), notes: String(data.get("notes")) }), "Lieu partenaire ajouté.").then(() => form.reset()); };
-  return <Panel title="Lieux partenaires"><div className="partner-layout"><form className="stack-form" onSubmit={submit}><Field label="Nom *"><input name="name" required/></Field><Field label="Adresse"><input name="address"/></Field><Field label="Notes"><input name="notes"/></Field><button className="button primary">+ Ajouter le lieu</button></form><div className="partner-list">{snapshot.partnerPlaces.map((place) => <article key={place.id}><div><strong>{place.name}</strong><span>{place.address || "Adresse non renseignée"}</span></div><button className="icon-button danger" title="Supprimer" onClick={() => { if (window.confirm(`Supprimer ${place.name} de la liste ?`)) void run(() => window.catApp.deletePartnerPlace(place.id), "Lieu partenaire supprimé."); }}>×</button></article>)}{!snapshot.partnerPlaces.length && <Empty text="Aucun lieu partenaire enregistré."/>}</div></div></Panel>;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    void run(
+      () =>
+        window.catApp.createPartnerPlace({
+          name: String(data.get("name")),
+          address: String(data.get("address")),
+          notes: String(data.get("notes")),
+        }),
+      "Lieu partenaire ajouté.",
+    ).then(() => form.reset());
+  };
+  return (
+    <Panel title="Lieux partenaires">
+      <div className="partner-layout">
+        <form className="stack-form" onSubmit={submit}>
+          <Field label="Nom *">
+            <input name="name" required />
+          </Field>
+          <Field label="Adresse">
+            <input name="address" />
+          </Field>
+          <Field label="Notes">
+            <input name="notes" />
+          </Field>
+          <button className="button primary">+ Ajouter le lieu</button>
+        </form>
+        <div className="partner-list">
+          {snapshot.partnerPlaces.map((place) => (
+            <article key={place.id}>
+              <div>
+                <strong>{place.name}</strong>
+                <span>{place.address || "Adresse non renseignée"}</span>
+              </div>
+              <button
+                className="icon-button danger"
+                title="Supprimer"
+                onClick={() => {
+                  if (window.confirm(`Supprimer ${place.name} de la liste ?`)) {
+                    void run(
+                      () => window.catApp.deletePartnerPlace(place.id),
+                      "Lieu partenaire supprimé.",
+                    );
+                  }
+                }}
+              >
+                ×
+              </button>
+            </article>
+          ))}
+          {!snapshot.partnerPlaces.length && <Empty text="Aucun lieu partenaire enregistré." />}
+        </div>
+      </div>
+    </Panel>
+  );
 }
 
 function RefugePage({ snapshot, run }: PageProps) {
-  const transferable = snapshot.catViews.filter((cat) => !["LOST", "DECEASED"].includes(cat.status));
-  const activeStays = snapshot.catViews.filter((cat) => cat.status === "AT_REFUGE").map((cat) => snapshot.refugeStays.find((stay) => stay.catId === cat.id && !stay.endDate) ?? { id: `default-${cat.id}`, catId: cat.id, zoneId: cat.currentRefugeZoneId || snapshot.refugeZones[0]?.id || "", startDate: cat.intakeDate, reason: "Présence au refuge" });
-  const [showMove, setShowMove] = useState(false); const [showSettings, setShowSettings] = useState(false);
-  const send = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => window.catApp.sendToRefuge({ catId: String(data.get("catId")), zoneId: String(data.get("zoneId")), date: String(data.get("date")), reason: String(data.get("reason")) }), "Chat envoyé au refuge."); };
-  return <div className="page-stack"><section className="refuge-banner"><div><span>Zones du refuge</span><h2>Le refuge</h2><p>Consultez directement chaque zone et les chats présents.</p></div><div className="refuge-actions"><button className="button light" onClick={() => setShowMove(!showMove)}>+ Déplacer un chat</button><button className="button ghost-light" onClick={() => setShowSettings(!showSettings)}>⚙ Paramètres des zones</button></div><strong>{activeStays.length}<small>chats présents</small></strong></section>{showMove && <Panel title="Envoyer ou changer de zone"><form className="move-form" onSubmit={send}><Field label="Chat *"><select name="catId" required><option value="">Choisir</option>{transferable.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}</select></Field><Field label="Zone *"><select name="zoneId" required>{snapshot.refugeZones.map((zone) => <option value={zone.id} key={zone.id}>{zone.name}</option>)}</select></Field><Field label="Date *"><FrenchDateInput name="date" defaultValue={localToday()} required/></Field><Field label="Motif"><input name="reason" placeholder="Retour, fin d'accueil, quarantaine…"/></Field><button className="button primary">Déplacer</button></form></Panel>}{showSettings && <RefugeSettings snapshot={snapshot} run={run}/>}<div className="zone-grid">{snapshot.refugeZones.map((zone) => { const stays = activeStays.filter((stay) => stay.zoneId === zone.id); return <article className="zone-card" key={zone.id}><header><div><strong>{zone.name}</strong><span>{zone.description}</span></div><b>{stays.length}</b></header><div>{stays.map((stay) => { const cat = snapshot.cats.find((candidate) => candidate.id === stay.catId)!; return <p key={stay.id}><span className="mini-avatar">{cat.name[0]}</span><span><CatIdentity cat={cat}/><small>Depuis {formatDate(stay.startDate)} · {stay.reason || "Présence au refuge"}</small></span>{cat.healthStatus === "SICK" && <b className="warning-text">Malade</b>}</p>; })}{!stays.length && <Empty text="Zone vide."/>}</div></article>; })}</div></div>;
+  const transferable = snapshot.catViews.filter(
+    (cat) => !["LOST", "DECEASED"].includes(cat.status),
+  );
+  const activeStays = snapshot.catViews
+    .filter((cat) => cat.status === "AT_REFUGE")
+    .map(
+      (cat) =>
+        snapshot.refugeStays.find((stay) => stay.catId === cat.id && !stay.endDate) ?? {
+          id: `default-${cat.id}`,
+          catId: cat.id,
+          zoneId: cat.currentRefugeZoneId || snapshot.refugeZones[0]?.id || "",
+          startDate: cat.intakeDate,
+          reason: "Présence au refuge",
+        },
+    );
+  const [showMove, setShowMove] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const send = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    void run(
+      () =>
+        window.catApp.sendToRefuge({
+          catId: String(data.get("catId")),
+          zoneId: String(data.get("zoneId")),
+          date: String(data.get("date")),
+          reason: String(data.get("reason")),
+        }),
+      "Chat envoyé au refuge.",
+    );
+  };
+  return (
+    <div className="page-stack">
+      <section className="refuge-banner">
+        <div>
+          <span>Zones du refuge</span>
+          <h2>Le refuge</h2>
+          <p>Consultez directement chaque zone et les chats présents.</p>
+        </div>
+        <div className="refuge-actions">
+          <button className="button light" onClick={() => setShowMove(!showMove)}>
+            + Déplacer un chat
+          </button>
+          <button className="button ghost-light" onClick={() => setShowSettings(!showSettings)}>
+            ⚙ Paramètres des zones
+          </button>
+        </div>
+        <strong>
+          {activeStays.length}
+          <small>chats présents</small>
+        </strong>
+      </section>
+      {showMove && (
+        <Panel title="Envoyer ou changer de zone">
+          <form className="move-form" onSubmit={send}>
+            <Field label="Chat *">
+              <select name="catId" required>
+                <option value="">Choisir</option>
+                {transferable.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Zone *">
+              <select name="zoneId" required>
+                {snapshot.refugeZones.map((zone) => (
+                  <option value={zone.id} key={zone.id}>
+                    {zone.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Date *">
+              <FrenchDateInput name="date" defaultValue={localToday()} required />
+            </Field>
+            <Field label="Motif">
+              <input name="reason" placeholder="Retour, fin d'accueil, quarantaine…" />
+            </Field>
+            <button className="button primary">Déplacer</button>
+          </form>
+        </Panel>
+      )}
+      {showSettings && <RefugeSettings snapshot={snapshot} run={run} />}
+      <div className="zone-grid">
+        {snapshot.refugeZones.map((zone) => {
+          const stays = activeStays.filter((stay) => stay.zoneId === zone.id);
+          return (
+            <article className="zone-card" key={zone.id}>
+              <header>
+                <div>
+                  <strong>{zone.name}</strong>
+                  <span>{zone.description}</span>
+                </div>
+                <b>{stays.length}</b>
+              </header>
+              <div>
+                {stays.map((stay) => {
+                  const cat = snapshot.cats.find((candidate) => candidate.id === stay.catId)!;
+                  return (
+                    <p key={stay.id}>
+                      <span className="mini-avatar">{cat.name[0]}</span>
+                      <span>
+                        <CatIdentity cat={cat} />
+                        <small>
+                          Depuis {formatDate(stay.startDate)} ·{" "}
+                          {stay.reason || "Présence au refuge"}
+                        </small>
+                      </span>
+                      {cat.healthStatus === "SICK" && <b className="warning-text">Malade</b>}
+                    </p>
+                  );
+                })}
+                {!stays.length && <Empty text="Zone vide." />}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function RefugeSettings({ snapshot, run }: PageProps) {
-  const createZone = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); void run(() => window.catApp.createRefugeZone({ name: String(data.get("name")), description: String(data.get("description")) }), "Zone créée.").then(() => form.reset()); };
-  return <Panel title="Paramètres des zones"><div className="zone-settings"><form className="stack-form" onSubmit={createZone}><Field label="Nouvelle zone *"><input name="name" required/></Field><Field label="Description"><input name="description"/></Field><button className="button primary">+ Créer</button></form><div>{snapshot.refugeZones.map((zone) => <form key={zone.id} className="zone-setting-row" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void run(() => window.catApp.updateRefugeZone({ id: zone.id, name: String(data.get("name")), description: String(data.get("description")) }), "Zone modifiée."); }}><input name="name" defaultValue={zone.name}/><input name="description" defaultValue={zone.description}/><button className="button tiny">Modifier</button><button type="button" className="icon-button danger" onClick={() => { if (window.confirm(`Supprimer la zone ${zone.name} ?`)) void run(() => window.catApp.deleteRefugeZone(zone.id), "Zone supprimée."); }}>×</button></form>)}</div></div></Panel>;
+  const createZone = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    void run(
+      () =>
+        window.catApp.createRefugeZone({
+          name: String(data.get("name")),
+          description: String(data.get("description")),
+        }),
+      "Zone créée.",
+    ).then(() => form.reset());
+  };
+  return (
+    <Panel title="Paramètres des zones">
+      <div className="zone-settings">
+        <form className="stack-form" onSubmit={createZone}>
+          <Field label="Nouvelle zone *">
+            <input name="name" required />
+          </Field>
+          <Field label="Description">
+            <input name="description" />
+          </Field>
+          <button className="button primary">+ Créer</button>
+        </form>
+        <div>
+          {snapshot.refugeZones.map((zone) => (
+            <form
+              key={zone.id}
+              className="zone-setting-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const data = new FormData(event.currentTarget);
+                void run(
+                  () =>
+                    window.catApp.updateRefugeZone({
+                      id: zone.id,
+                      name: String(data.get("name")),
+                      description: String(data.get("description")),
+                    }),
+                  "Zone modifiée.",
+                );
+              }}
+            >
+              <input name="name" defaultValue={zone.name} />
+              <input name="description" defaultValue={zone.description} />
+              <button className="button tiny">Modifier</button>
+              <button
+                type="button"
+                className="icon-button danger"
+                onClick={() => {
+                  if (window.confirm(`Supprimer la zone ${zone.name} ?`)) {
+                    void run(() => window.catApp.deleteRefugeZone(zone.id), "Zone supprimée.");
+                  }
+                }}
+              >
+                ×
+              </button>
+            </form>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
 }
 
-function ImportPage({ snapshot, setSnapshot, setNotice }: { snapshot: AppSnapshot; setSnapshot: (snapshot: AppSnapshot) => void; setNotice: (notice: Notice | null) => void }) {
-  const [preview, setPreview] = useState<LegacyImportPreview | null>(null); const [busy, setBusy] = useState(false);
-  const load = async () => { try { setBusy(true); setPreview(await window.catApp.chooseAndPreviewLegacyCsv()); } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); } finally { setBusy(false); } };
-  const commit = async () => { if (!preview) return; try { setBusy(true); const outcome = await window.catApp.commitLegacyImport(preview); setSnapshot(outcome.snapshot); setNotice({ kind: "success", text: `${outcome.result.importedCats} chats, ${outcome.result.importedFamilies} adoptants et ${outcome.result.importedAdoptions} adoptions importés.` }); setPreview(null); } catch (error) { setNotice({ kind: "error", text: errorMessage(error) }); } finally { setBusy(false); } };
+function ImportPage({
+  snapshot,
+  setSnapshot,
+  setNotice,
+}: {
+  snapshot: AppSnapshot;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  setNotice: (notice: Notice | null) => void;
+}) {
+  const [preview, setPreview] = useState<LegacyImportPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try {
+      setBusy(true);
+      setPreview(await window.catApp.chooseAndPreviewLegacyCsv());
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const commit = async () => {
+    if (!preview) {
+      return;
+    }
+    try {
+      setBusy(true);
+      const outcome = await window.catApp.commitLegacyImport(preview);
+      setSnapshot(outcome.snapshot);
+      setNotice({
+        kind: "success",
+        text: `${outcome.result.importedCats} chats, ${outcome.result.importedFamilies} adoptants et ${outcome.result.importedAdoptions} adoptions importés.`,
+      });
+      setPreview(null);
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
   const issues = useMemo(() => preview?.rows.flatMap((row) => row.issues) ?? [], [preview]);
-  return <div className="page-stack"><section className="import-intro"><div className="import-icon">CSV</div><div><h2>Importer les anciennes adoptions</h2><p>Les contacts du fichier deviennent des adoptants définitifs, séparés des familles d'accueil.</p></div><div className="import-actions"><button className="button primary" disabled={busy} onClick={() => void load()}>Choisir un CSV</button></div></section>{preview && <><section className="import-stats"><Metric label="Lignes" value={preview.rows.length} tone="ink"/><Metric label="Importables" value={preview.rows.filter((row) => row.importable).length} tone="sage"/><Metric label="Erreurs" value={preview.errorCount} tone="rose"/><Metric label="Avertissements" value={preview.warningCount} tone="amber"/></section><Panel title="Diagnostic" action={<button className="button primary" disabled={busy || !preview.rows.some((row) => row.importable)} onClick={() => void commit()}>Importer</button>}><p className="source-path">{preview.sourcePath}</p><div className="issue-list">{issues.slice(0, 100).map((issue, index) => <div className={`issue ${issue.severity}`} key={`${issue.rowNumber}-${issue.field}-${index}`}><span>{issue.severity === "error" ? "!" : "i"}</span><strong>Ligne {issue.rowNumber}</strong><code>{issue.field}</code><p>{issue.message}</p></div>)}{!issues.length && <Empty text="Aucun problème détecté."/>}</div></Panel></>}</div>;
+  return (
+    <div className="page-stack">
+      <section className="import-intro">
+        <div className="import-icon">CSV</div>
+        <div>
+          <h2>Importer les anciennes adoptions</h2>
+          <p>
+            Les contacts du fichier deviennent des adoptants définitifs, séparés des familles
+            d'accueil.
+          </p>
+        </div>
+        <div className="import-actions">
+          <button className="button primary" disabled={busy} onClick={() => void load()}>
+            Choisir un CSV
+          </button>
+        </div>
+      </section>
+      {preview && (
+        <>
+          <section className="import-stats">
+            <Metric label="Lignes" value={preview.rows.length} tone="ink" />
+            <Metric
+              label="Importables"
+              value={preview.rows.filter((row) => row.importable).length}
+              tone="sage"
+            />
+            <Metric label="Erreurs" value={preview.errorCount} tone="rose" />
+            <Metric label="Avertissements" value={preview.warningCount} tone="amber" />
+          </section>
+          <Panel
+            title="Diagnostic"
+            action={
+              <button
+                className="button primary"
+                disabled={busy || !preview.rows.some((row) => row.importable)}
+                onClick={() => void commit()}
+              >
+                Importer
+              </button>
+            }
+          >
+            <p className="source-path">{preview.sourcePath}</p>
+            <div className="issue-list">
+              {issues.slice(0, 100).map((issue, index) => (
+                <div
+                  className={`issue ${issue.severity}`}
+                  key={`${issue.rowNumber}-${issue.field}-${index}`}
+                >
+                  <span>{issue.severity === "error" ? "!" : "i"}</span>
+                  <strong>Ligne {issue.rowNumber}</strong>
+                  <code>{issue.field}</code>
+                  <p>{issue.message}</p>
+                </div>
+              ))}
+              {!issues.length && <Empty text="Aucun problème détecté." />}
+            </div>
+          </Panel>
+        </>
+      )}
+    </div>
+  );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number | string; tone: string }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><i/></article>; }
-function openCat(catId: string) { window.dispatchEvent(new CustomEvent("cat:open", { detail: catId })); }
-function openFamily(familyId: string) { window.dispatchEvent(new CustomEvent("family:open", { detail: familyId })); }
-function CatIdentity({ cat }: { cat: Pick<AppSnapshot["cats"][number], "id" | "name"> }) { const activate = (event: { stopPropagation(): void; preventDefault(): void }) => { event.stopPropagation(); event.preventDefault(); openCat(cat.id); }; return <span className="cat-identity cat-link" role="button" tabIndex={0} onClick={activate} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") activate(event); }}><strong>{cat.name}</strong></span>; }
-function FamilyLink({ family }: { family: Pick<AppSnapshot["families"][number], "id" | "label"> }) { const activate = (event: { stopPropagation(): void; preventDefault(): void }) => { event.stopPropagation(); event.preventDefault(); openFamily(family.id); }; return <span className="family-link" role="button" tabIndex={0} onClick={activate} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") activate(event); }}>{family.label}</span>; }
-function LocationHeading({ group, snapshot }: { group: AdoptionDaySuggestionGroup; snapshot: AppSnapshot }) { const family = group.locationType === "FAMILY" ? snapshot.families.find((candidate) => candidate.id === group.locationId) : undefined; return family ? <FamilyLink family={family}/> : <strong>{group.locationLabel}</strong>; }
-function CurrentLocation({ cat, snapshot }: { cat: AppSnapshot["catViews"][number]; snapshot: AppSnapshot }) { const family = cat.currentFamilyId ? snapshot.families.find((candidate) => candidate.id === cat.currentFamilyId) : undefined; return family ? <FamilyLink family={family}/> : <span>{cat.currentLocationLabel || "Le refuge"}</span>; }
-function Adoptability({ cat }: { cat: Pick<AppSnapshot["cats"][number], "adoptionEligibility" | "adoptionBlockedReason"> }) { const label = cat.adoptionEligibility === "ELIGIBLE" ? "Oui" : cat.adoptionEligibility === "ON_HOLD" ? "Panier retraite" : "Non"; return <span className="adoptability"><b className={cat.adoptionEligibility === "INELIGIBLE" ? "no" : ""}>{label}</b>{cat.adoptionBlockedReason && <i className="info-tooltip" tabIndex={0} data-tooltip={cat.adoptionBlockedReason} aria-label={`Information : ${cat.adoptionBlockedReason}`}>i</i>}</span>; }
-function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) { return <section className="panel"><div className="panel-heading"><h2>{title}</h2>{action}</div>{children}</section>; }
-function Field({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) { return <label className={`field ${wide ? "wide" : ""}`}><span>{label}</span>{children}</label>; }
-function Empty({ text }: { text: string }) { return <div className="empty"><span>◇</span><p>{text}</p></div>; }
-function eventLabel(type: string, label?: string): string { if (type === "NOTE_ADDED") return label || "Note de suivi"; return ({ REGISTERED: "Enregistré", PLACED_IN_FOSTER: "Placé en famille d'accueil", FOSTER_ENDED: "Accueil terminé", SENT_TO_REFUGE: "Envoyé au refuge", REFUGE_ZONE_CHANGED: "Zone du refuge changée", LEFT_REFUGE: "Sortie du refuge", ADOPTED: "Adopté", RETURNED: "Retour d'adoption", LOST: "Déclaré perdu", DECEASED: "Déclaré décédé", TRANSFERRED: "Transféré", DECLARED_SICK: "Déclaré malade", RECOVERED: "Déclaré rétabli" } as Record<string, string>)[type] ?? type; }
+function Metric({ label, value, tone }: { label: string; value: number | string; tone: string }) {
+  return (
+    <article className={`metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <i />
+    </article>
+  );
+}
+function openCat(catId: string) {
+  window.dispatchEvent(new CustomEvent("cat:open", { detail: catId }));
+}
+function openFamily(familyId: string) {
+  window.dispatchEvent(new CustomEvent("family:open", { detail: familyId }));
+}
+function CatIdentity({ cat }: { cat: Pick<AppSnapshot["cats"][number], "id" | "name"> }) {
+  const activate = (event: { stopPropagation(): void; preventDefault(): void }) => {
+    event.stopPropagation();
+    event.preventDefault();
+    openCat(cat.id);
+  };
+  return (
+    <span
+      className="cat-identity cat-link"
+      role="button"
+      tabIndex={0}
+      onClick={activate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          activate(event);
+        }
+      }}
+    >
+      <strong>{cat.name}</strong>
+    </span>
+  );
+}
+function FamilyLink({ family }: { family: Pick<AppSnapshot["families"][number], "id" | "label"> }) {
+  const activate = (event: { stopPropagation(): void; preventDefault(): void }) => {
+    event.stopPropagation();
+    event.preventDefault();
+    openFamily(family.id);
+  };
+  return (
+    <span
+      className="family-link"
+      role="button"
+      tabIndex={0}
+      onClick={activate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          activate(event);
+        }
+      }}
+    >
+      {family.label}
+    </span>
+  );
+}
+function LocationHeading({
+  group,
+  snapshot,
+}: {
+  group: AdoptionDaySuggestionGroup;
+  snapshot: AppSnapshot;
+}) {
+  const family =
+    group.locationType === "FAMILY"
+      ? snapshot.families.find((candidate) => candidate.id === group.locationId)
+      : undefined;
+  return family ? <FamilyLink family={family} /> : <strong>{group.locationLabel}</strong>;
+}
+function CurrentLocation({
+  cat,
+  snapshot,
+}: {
+  cat: AppSnapshot["catViews"][number];
+  snapshot: AppSnapshot;
+}) {
+  const family = cat.currentFamilyId
+    ? snapshot.families.find((candidate) => candidate.id === cat.currentFamilyId)
+    : undefined;
+  return family ? (
+    <FamilyLink family={family} />
+  ) : (
+    <span>{cat.currentLocationLabel || "Le refuge"}</span>
+  );
+}
+function Adoptability({
+  cat,
+}: {
+  cat: Pick<AppSnapshot["cats"][number], "adoptionEligibility" | "adoptionBlockedReason">;
+}) {
+  const label =
+    cat.adoptionEligibility === "ELIGIBLE"
+      ? "Oui"
+      : cat.adoptionEligibility === "ON_HOLD"
+        ? "Panier retraite"
+        : "Non";
+  return (
+    <span className="adoptability">
+      <b className={cat.adoptionEligibility === "INELIGIBLE" ? "no" : ""}>{label}</b>
+      {cat.adoptionBlockedReason && (
+        <i
+          className="info-tooltip"
+          tabIndex={0}
+          data-tooltip={cat.adoptionBlockedReason}
+          aria-label={`Information : ${cat.adoptionBlockedReason}`}
+        >
+          i
+        </i>
+      )}
+    </span>
+  );
+}
+function Panel({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="panel">
+      <div className="panel-heading">
+        <h2>{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+function Field({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
+  return (
+    <label className={`field ${wide ? "wide" : ""}`}>
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+function Empty({ text }: { text: string }) {
+  return (
+    <div className="empty">
+      <span>◇</span>
+      <p>{text}</p>
+    </div>
+  );
+}
+function eventLabel(type: string, label?: string): string {
+  if (type === "NOTE_ADDED") {
+    return label || "Note de suivi";
+  }
+  return (
+    (
+      {
+        REGISTERED: "Enregistré",
+        PLACED_IN_FOSTER: "Placé en famille d'accueil",
+        FOSTER_ENDED: "Accueil terminé",
+        SENT_TO_REFUGE: "Envoyé au refuge",
+        REFUGE_ZONE_CHANGED: "Zone du refuge changée",
+        LEFT_REFUGE: "Sortie du refuge",
+        ADOPTED: "Adopté",
+        RETURNED: "Retour d'adoption",
+        LOST: "Déclaré perdu",
+        DECEASED: "Déclaré décédé",
+        TRANSFERRED: "Transféré",
+        DECLARED_SICK: "Déclaré malade",
+        RECOVERED: "Déclaré rétabli",
+      } as Record<string, string>
+    )[type] ?? type
+  );
+}

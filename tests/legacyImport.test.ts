@@ -4,11 +4,31 @@ import { stringifyCsv } from "../src/infrastructure/csv";
 import { commitLegacyPreview, previewLegacyCsv } from "../src/legacy/legacyImport";
 
 const headers = [
-  "Date adoption", "Magasin", "Civilité", "NOM", "Prénom", "Recipient", "Téléphone", "Nom chat",
-  "Numéro identification", "Date de naissance", "Adulte / Chaton", "Sexe", "Sté_Fait", "Véto pour sté ?",
-  "Presta restant à faire le jour de la JA", "Dossier IE complet ?", "year", "Date dossier IE complet",
-  "Chgt IE Fait", "Sapca / Retour / Perdu / dcd", "Date", "Commentaires", "Date relance nouvelles",
-  "Réponse relance ?", "Dernières nlles reçues"
+  "Date adoption",
+  "Magasin",
+  "Civilité",
+  "NOM",
+  "Prénom",
+  "Recipient",
+  "Téléphone",
+  "Nom chat",
+  "Numéro identification",
+  "Date de naissance",
+  "Adulte / Chaton",
+  "Sexe",
+  "Sté_Fait",
+  "Véto pour sté ?",
+  "Presta restant à faire le jour de la JA",
+  "Dossier IE complet ?",
+  "year",
+  "Date dossier IE complet",
+  "Chgt IE Fait",
+  "Sapca / Retour / Perdu / dcd",
+  "Date",
+  "Commentaires",
+  "Date relance nouvelles",
+  "Réponse relance ?",
+  "Dernières nlles reçues",
 ];
 
 function syntheticLegacyCsv(): string {
@@ -17,15 +37,15 @@ function syntheticLegacyCsv(): string {
     Magasin: "Partenaire fictif",
     Civilité: "",
     NOM: `Adoptant ${index + 1}`,
-    "Prénom": "Exemple",
+    Prénom: "Exemple",
     Recipient: "adresse-invalide",
-    "Téléphone": "0000000000",
+    Téléphone: "0000000000",
     "Nom chat": index < 3 ? "" : `Chat ${index + 1}`,
     "Numéro identification": `identifiant-invalide-${index + 1}`,
     "Date de naissance": "01/01/2023",
     "Adulte / Chaton": "Adulte",
     Sexe: index % 2 === 0 ? "F" : "M",
-    "Sté_Fait": index % 2 === 0 ? "x" : "non",
+    Sté_Fait: index % 2 === 0 ? "x" : "non",
     "Véto pour sté ?": "",
     "Presta restant à faire le jour de la JA": "Stérilisation",
     "Dossier IE complet ?": "",
@@ -37,7 +57,7 @@ function syntheticLegacyCsv(): string {
     Commentaires: "Donnée de test entièrement fictive.",
     "Date relance nouvelles": "",
     "Réponse relance ?": "",
-    "Dernières nlles reçues": ""
+    "Dernières nlles reçues": "",
   }));
   return stringifyCsv(headers, rows);
 }
@@ -50,8 +70,16 @@ describe("legacy adoption import", () => {
     expect(preview.rows.filter((row) => row.importable)).toHaveLength(35);
     expect(preview.warningCount).toBeGreaterThan(50);
     expect(preview.rows[0].issues.some((issue) => issue.field === "catName")).toBe(true);
-    expect(preview.rows.some((row) => row.issues.some((issue) => issue.message.includes("Adresse e-mail")))).toBe(true);
-    expect(preview.rows.some((row) => row.issues.some((issue) => issue.message.includes("Stérilisation indiquée")))).toBe(true);
+    expect(
+      preview.rows.some((row) =>
+        row.issues.some((issue) => issue.message.includes("Adresse e-mail")),
+      ),
+    ).toBe(true);
+    expect(
+      preview.rows.some((row) =>
+        row.issues.some((issue) => issue.message.includes("Stérilisation indiquée")),
+      ),
+    ).toBe(true);
   });
 
   it("imports rows without accepting invalid legacy identifiers", () => {

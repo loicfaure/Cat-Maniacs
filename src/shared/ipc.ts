@@ -38,5 +38,5 @@ export const IPC = {
   deleteCatEvent: "cats:delete-event",
   completeTask: "tasks:complete",
   chooseLegacyCsv: "legacy:choose-preview",
-  commitLegacyImport: "legacy:commit"
+  commitLegacyImport: "legacy:commit",
 } as const;

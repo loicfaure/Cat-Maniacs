@@ -19,12 +19,15 @@ const api: CatAppApi = {
   updateRefugeZone: (input) => ipcRenderer.invoke(IPC.updateRefugeZone, input),
   deleteRefugeZone: (id) => ipcRenderer.invoke(IPC.deleteRefugeZone, id),
   createAdoption: (input) => ipcRenderer.invoke(IPC.createAdoption, input),
-  createAdoptionWithNewFamily: (input) => ipcRenderer.invoke(IPC.createAdoptionWithNewFamily, input),
+  createAdoptionWithNewFamily: (input) =>
+    ipcRenderer.invoke(IPC.createAdoptionWithNewFamily, input),
   returnAdoption: (input) => ipcRenderer.invoke(IPC.returnAdoption, input),
   createAdoptionDay: (input) => ipcRenderer.invoke(IPC.createAdoptionDay, input),
-  getAdoptionDaySuggestions: (adoptionDayId) => ipcRenderer.invoke(IPC.getAdoptionDaySuggestions, adoptionDayId),
+  getAdoptionDaySuggestions: (adoptionDayId) =>
+    ipcRenderer.invoke(IPC.getAdoptionDaySuggestions, adoptionDayId),
   addCatsToAdoptionDay: (input) => ipcRenderer.invoke(IPC.addCatsToAdoptionDay, input),
-  withdrawCatFromAdoptionDay: (registrationId) => ipcRenderer.invoke(IPC.withdrawCatFromAdoptionDay, registrationId),
+  withdrawCatFromAdoptionDay: (registrationId) =>
+    ipcRenderer.invoke(IPC.withdrawCatFromAdoptionDay, registrationId),
   bookCatForAdoption: (input) => ipcRenderer.invoke(IPC.bookCatForAdoption, input),
   confirmAdoptionBooking: (input) => ipcRenderer.invoke(IPC.confirmAdoptionBooking, input),
   createPartnerPlace: (input) => ipcRenderer.invoke(IPC.createPartnerPlace, input),
@@ -42,7 +45,7 @@ const api: CatAppApi = {
   completeTask: (input) => ipcRenderer.invoke(IPC.completeTask, input),
   chooseAndPreviewLegacyCsv: () => ipcRenderer.invoke(IPC.chooseLegacyCsv),
   commitLegacyImport: (preview) => ipcRenderer.invoke(IPC.commitLegacyImport, preview),
-  chooseDatasetDirectory: () => ipcRenderer.invoke(IPC.chooseDataset)
+  chooseDatasetDirectory: () => ipcRenderer.invoke(IPC.chooseDataset),
 };
 
 contextBridge.exposeInMainWorld("catApp", api);

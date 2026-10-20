@@ -7,7 +7,7 @@ describe("CSV support", () => {
     expect(parsed.errors).toEqual([]);
     expect(parsed.rows).toEqual([
       ["name", "long\nheader"],
-      ["Nala", 'hello, "cat"']
+      ["Nala", 'hello, "cat"'],
     ]);
   });
 

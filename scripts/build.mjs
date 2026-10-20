@@ -1,5 +1,5 @@
-import { build as viteBuild } from "vite";
 import { build } from "esbuild";
+import { build as viteBuild } from "vite";
 
 await Promise.all([
   build({
@@ -10,7 +10,7 @@ await Promise.all([
     format: "cjs",
     target: "node22",
     external: ["electron"],
-    sourcemap: true
+    sourcemap: true,
   }),
   build({
     entryPoints: ["src/preload/preload.ts"],
@@ -20,7 +20,7 @@ await Promise.all([
     format: "cjs",
     target: "node22",
     external: ["electron"],
-    sourcemap: true
+    sourcemap: true,
   }),
-  viteBuild({ configLoader: "runner" })
+  viteBuild({ configLoader: "runner" }),
 ]);

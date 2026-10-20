@@ -1,27 +1,27 @@
-import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain } from "electron";
 import { CatService } from "../application/catService";
 import { createDemoDataset } from "../demo/demoDataset";
-import { deriveCatView } from "../domain/dataset";
 import { profileForBirthDate } from "../domain/catAge";
+import { deriveCatView } from "../domain/dataset";
 import { DatasetRepository } from "../infrastructure/datasetRepository";
 import { commitLegacyPreview, previewLegacyCsv } from "../legacy/legacyImport";
 import { IPC } from "../shared/ipc";
-import { loadAppPreferences, saveAppPreferences, type AppPreferences } from "./preferences";
 import type {
-  AdoptionInput,
-  AdoptionDayInput,
-  AdoptionWithNewFamilyInput,
   AdopterInput,
+  AdoptionDayInput,
+  AdoptionInput,
+  AdoptionWithNewFamilyInput,
   AppSnapshot,
   CatInput,
   CatUpdateInput,
   Dataset,
   FamilyInput,
   LegacyImportPreview,
-  PlacementInput
+  PlacementInput,
 } from "../shared/types";
+import { type AppPreferences, loadAppPreferences, saveAppPreferences } from "./preferences";
 
 const forcedDemoMode = process.env.CAT_DISPENSER_DEMO === "1";
 let demoMode = false;
@@ -38,7 +38,7 @@ function snapshot(): AppSnapshot {
     datasetPath: repository.directory,
     demoMode,
     showDemoWelcome,
-    catViews: dataset.cats.map((cat) => deriveCatView(dataset, cat))
+    catViews: dataset.cats.map((cat) => deriveCatView(dataset, cat)),
   };
 }
 
@@ -46,7 +46,9 @@ async function synchronizeAgeProfiles(): Promise<void> {
   const timestamp = new Date().toISOString();
   let changed = false;
   for (const cat of dataset.cats) {
-    if (cat.profile === "SPECIAL_NEEDS") continue;
+    if (cat.profile === "SPECIAL_NEEDS") {
+      continue;
+    }
     const profile = profileForBirthDate(cat.birthDate);
     if (profile && profile !== cat.profile) {
       cat.profile = profile;
@@ -73,7 +75,9 @@ async function activateMode(enabled: boolean, resetDemo = false): Promise<AppSna
   demoMode = enabled;
   try {
     const directory = enabled ? demoDatasetDirectory : preferences.realDatasetDirectory;
-    if (enabled && resetDemo) await rm(directory, { recursive: true, force: true });
+    if (enabled && resetDemo) {
+      await rm(directory, { recursive: true, force: true });
+    }
     await openDataset(directory);
     if (enabled && dataset.cats.length === 0) {
       dataset = createDemoDataset();
@@ -96,10 +100,15 @@ async function mutate(action: (service: CatService, draft: Dataset) => void): Pr
 
 function assertTrustedRenderer(event: IpcMainInvokeEvent): void {
   const url = event.senderFrame?.url ?? "";
-  if (!url.startsWith("file://")) throw new Error("Appel IPC refusé.");
+  if (!url.startsWith("file://")) {
+    throw new Error("Appel IPC refusé.");
+  }
 }
 
-function handle(channel: string, callback: (event: IpcMainInvokeEvent, ...args: never[]) => unknown): void {
+function handle(
+  channel: string,
+  callback: (event: IpcMainInvokeEvent, ...args: never[]) => unknown,
+): void {
   ipcMain.handle(channel, async (event, ...args) => {
     assertTrustedRenderer(event);
     return callback(event, ...(args as never[]));
@@ -107,9 +116,14 @@ function handle(channel: string, callback: (event: IpcMainInvokeEvent, ...args: 
 }
 
 function registerHandlers(): void {
-  handle(IPC.bootstrap, async () => { await synchronizeAgeProfiles(); return snapshot(); });
+  handle(IPC.bootstrap, async () => {
+    await synchronizeAgeProfiles();
+    return snapshot();
+  });
   handle(IPC.setDemoMode, async (_event, enabled: boolean) => {
-    if (typeof enabled !== "boolean") throw new Error("Mode de démonstration invalide.");
+    if (typeof enabled !== "boolean") {
+      throw new Error("Mode de démonstration invalide.");
+    }
     const nextSnapshot = await activateMode(enabled);
     preferences.demoMode = enabled;
     if (!enabled) {
@@ -125,67 +139,231 @@ function registerHandlers(): void {
     await saveAppPreferences(preferencesPath, preferences);
     return snapshot();
   });
-  handle(IPC.createCat, async (_event, input: CatInput) => mutate((service) => void service.createCat(input)));
-  handle(IPC.updateCat, async (_event, input: CatUpdateInput) => mutate((service) => void service.updateCat(input)));
-  handle(IPC.createFamily, async (_event, input: FamilyInput) => mutate((service) => void service.createFamily(input)));
-  handle(IPC.addFamilyHoliday, async (_event, input: { familyId: string; startDate: string; endDate: string; notes?: string }) =>
-    mutate((service) => void service.addFamilyHoliday(input.familyId, input.startDate, input.endDate, input.notes)));
-  handle(IPC.createAdopter, async (_event, input: AdopterInput) => mutate((service) => void service.createAdopter(input)));
-  handle(IPC.assessPlacement, async (_event, input: PlacementInput) => new CatService(dataset).assessPlacement(input));
-  handle(IPC.startPlacement, async (_event, input: PlacementInput) => mutate((service) => void service.startPlacement(input)));
-  handle(IPC.endPlacement, async (_event, input: { placementId: string; endDate: string; outcome?: string }) =>
-    mutate((service) => void service.endPlacement(input.placementId, input.endDate, input.outcome)));
-  handle(IPC.sendToRefuge, async (_event, input: { catId: string; zoneId: string; date: string; reason?: string; notes?: string }) =>
-    mutate((service) => void service.sendToRefuge(input.catId, input.zoneId, input.date, input.reason, input.notes)));
+  handle(IPC.createCat, async (_event, input: CatInput) =>
+    mutate((service) => void service.createCat(input)),
+  );
+  handle(IPC.updateCat, async (_event, input: CatUpdateInput) =>
+    mutate((service) => void service.updateCat(input)),
+  );
+  handle(IPC.createFamily, async (_event, input: FamilyInput) =>
+    mutate((service) => void service.createFamily(input)),
+  );
+  handle(
+    IPC.addFamilyHoliday,
+    async (
+      _event,
+      input: { familyId: string; startDate: string; endDate: string; notes?: string },
+    ) =>
+      mutate(
+        (service) =>
+          void service.addFamilyHoliday(
+            input.familyId,
+            input.startDate,
+            input.endDate,
+            input.notes,
+          ),
+      ),
+  );
+  handle(IPC.createAdopter, async (_event, input: AdopterInput) =>
+    mutate((service) => void service.createAdopter(input)),
+  );
+  handle(IPC.assessPlacement, async (_event, input: PlacementInput) =>
+    new CatService(dataset).assessPlacement(input),
+  );
+  handle(IPC.startPlacement, async (_event, input: PlacementInput) =>
+    mutate((service) => void service.startPlacement(input)),
+  );
+  handle(
+    IPC.endPlacement,
+    async (_event, input: { placementId: string; endDate: string; outcome?: string }) =>
+      mutate(
+        (service) => void service.endPlacement(input.placementId, input.endDate, input.outcome),
+      ),
+  );
+  handle(
+    IPC.sendToRefuge,
+    async (
+      _event,
+      input: { catId: string; zoneId: string; date: string; reason?: string; notes?: string },
+    ) =>
+      mutate(
+        (service) =>
+          void service.sendToRefuge(
+            input.catId,
+            input.zoneId,
+            input.date,
+            input.reason,
+            input.notes,
+          ),
+      ),
+  );
   handle(IPC.createRefugeZone, async (_event, input: { name: string; description?: string }) =>
-    mutate((service) => void service.createRefugeZone(input.name, input.description)));
-  handle(IPC.updateRefugeZone, async (_event, input: { id: string; name: string; description?: string }) =>
-    mutate((service) => void service.updateRefugeZone(input.id, input.name, input.description)));
-  handle(IPC.deleteRefugeZone, async (_event, id: string) => mutate((service) => void service.deleteRefugeZone(id)));
-  handle(IPC.createAdoption, async (_event, input: AdoptionInput) => mutate((service) => void service.createAdoption(input)));
+    mutate((service) => void service.createRefugeZone(input.name, input.description)),
+  );
+  handle(
+    IPC.updateRefugeZone,
+    async (_event, input: { id: string; name: string; description?: string }) =>
+      mutate((service) => void service.updateRefugeZone(input.id, input.name, input.description)),
+  );
+  handle(IPC.deleteRefugeZone, async (_event, id: string) =>
+    mutate((service) => void service.deleteRefugeZone(id)),
+  );
+  handle(IPC.createAdoption, async (_event, input: AdoptionInput) =>
+    mutate((service) => void service.createAdoption(input)),
+  );
   handle(IPC.createAdoptionWithNewFamily, async (_event, input: AdoptionWithNewFamilyInput) =>
-    mutate((service) => void service.createAdoptionWithNewFamily(input)));
-  handle(IPC.returnAdoption, async (_event, input: { adoptionId: string; date: string; notes?: string; refugeZoneId?: string }) =>
-    mutate((service, draft) => {
-      const adoption = draft.adoptions.find((candidate) => candidate.id === input.adoptionId);
-      if (!adoption) throw new Error("Adoption introuvable.");
-      service.returnAdoption(input.adoptionId, input.date, input.notes);
-      if (input.refugeZoneId) service.sendToRefuge(adoption.catId, input.refugeZoneId, input.date, "Retour d'adoption", input.notes);
-    }));
-  handle(IPC.createAdoptionDay, async (_event, input: AdoptionDayInput) => mutate((service) => void service.createAdoptionDay(input)));
-  handle(IPC.getAdoptionDaySuggestions, async (_event, adoptionDayId: string) => new CatService(dataset).getAdoptionDaySuggestions(adoptionDayId));
-  handle(IPC.addCatsToAdoptionDay, async (_event, input: { adoptionDayId: string; catIds: string[]; overrideWarnings?: boolean; overrideReason?: string }) =>
-    mutate((service) => void service.addCatsToAdoptionDay(input.adoptionDayId, input.catIds, input.overrideWarnings, input.overrideReason)));
+    mutate((service) => void service.createAdoptionWithNewFamily(input)),
+  );
+  handle(
+    IPC.returnAdoption,
+    async (
+      _event,
+      input: { adoptionId: string; date: string; notes?: string; refugeZoneId?: string },
+    ) =>
+      mutate((service, draft) => {
+        const adoption = draft.adoptions.find((candidate) => candidate.id === input.adoptionId);
+        if (!adoption) {
+          throw new Error("Adoption introuvable.");
+        }
+        service.returnAdoption(input.adoptionId, input.date, input.notes);
+        if (input.refugeZoneId) {
+          service.sendToRefuge(
+            adoption.catId,
+            input.refugeZoneId,
+            input.date,
+            "Retour d'adoption",
+            input.notes,
+          );
+        }
+      }),
+  );
+  handle(IPC.createAdoptionDay, async (_event, input: AdoptionDayInput) =>
+    mutate((service) => void service.createAdoptionDay(input)),
+  );
+  handle(IPC.getAdoptionDaySuggestions, async (_event, adoptionDayId: string) =>
+    new CatService(dataset).getAdoptionDaySuggestions(adoptionDayId),
+  );
+  handle(
+    IPC.addCatsToAdoptionDay,
+    async (
+      _event,
+      input: {
+        adoptionDayId: string;
+        catIds: string[];
+        overrideWarnings?: boolean;
+        overrideReason?: string;
+      },
+    ) =>
+      mutate(
+        (service) =>
+          void service.addCatsToAdoptionDay(
+            input.adoptionDayId,
+            input.catIds,
+            input.overrideWarnings,
+            input.overrideReason,
+          ),
+      ),
+  );
   handle(IPC.withdrawCatFromAdoptionDay, async (_event, registrationId: string) =>
-    mutate((service) => void service.withdrawCatFromAdoptionDay(registrationId)));
-  handle(IPC.bookCatForAdoption, async (_event, input: { registrationId: string; adopterId: string; bookedAt: string }) =>
-    mutate((service) => void service.bookCatForAdoption(input.registrationId, input.adopterId, input.bookedAt)));
-  handle(IPC.confirmAdoptionBooking, async (_event, input: { registrationId: string; adoptionDate: string }) =>
-    mutate((service) => void service.confirmAdoptionBooking(input.registrationId, input.adoptionDate)));
-  handle(IPC.createPartnerPlace, async (_event, input: { name: string; address?: string; notes?: string }) =>
-    mutate((service) => void service.createPartnerPlace(input.name, input.address, input.notes)));
-  handle(IPC.deletePartnerPlace, async (_event, id: string) => mutate((service) => void service.deletePartnerPlace(id)));
-  handle(IPC.declareSickness, async (_event, input: { catId: string; disease: string; declaredAt: string; lookbackDays: number; notes?: string }) => {
-    const draft = structuredClone(dataset);
-    const result = new CatService(draft).declareSickness(input.catId, input.disease, input.declaredAt, input.lookbackDays, input.notes);
-    await repository.save(draft);
-    dataset = draft;
-    return { snapshot: snapshot(), exposures: result.exposures };
-  });
-  handle(IPC.resolveHealthAlert, async (_event, input: { alertId: string; resolvedAt: string; notes?: string }) =>
-    mutate((service) => void service.resolveHealthAlert(input.alertId, input.resolvedAt, input.notes)));
-  handle(IPC.getHealthExposures, async (_event, healthAlertId: string) => new CatService(dataset).getHealthExposures(healthAlertId));
-  handle(IPC.createSponsorship, async (_event, input: import("../shared/types").SponsorshipInput) => mutate((service) => void service.createSponsorship(input)));
-  handle(IPC.updateSponsorship, async (_event, input: import("../shared/types").SponsorshipInput & { id: string }) => mutate((service) => void service.createSponsorship(input, input.id)));
-  handle(IPC.declareCatDeceased, async (_event, input: { catId: string; date: string; notes?: string }) => mutate((service) => void service.declareCatDeceased(input.catId, input.date, input.notes)));
-  handle(IPC.createTask, async (_event, input: import("../shared/types").TaskInput) => mutate((service) => void service.createTask(input)));
-  handle(IPC.recordCare, async (_event, input: import("../shared/types").CareRecordInput) => mutate((service) => void service.recordCare(input)));
-  handle(IPC.recordCatHistory, async (_event, input: import("../shared/types").CatHistoryInput) => mutate((service) => void service.recordCatHistory(input)));
-  handle(IPC.deleteCatEvent, async (_event, eventId: string) => mutate((service) => void service.deleteCatEvent(eventId)));
-  handle(IPC.completeTask, async (_event, input: { id: string; completedAt: string; nextDueDate?: string }) => mutate((service) => void service.completeTask(input.id, input.completedAt, input.nextDueDate)));
+    mutate((service) => void service.withdrawCatFromAdoptionDay(registrationId)),
+  );
+  handle(
+    IPC.bookCatForAdoption,
+    async (_event, input: { registrationId: string; adopterId: string; bookedAt: string }) =>
+      mutate(
+        (service) =>
+          void service.bookCatForAdoption(input.registrationId, input.adopterId, input.bookedAt),
+      ),
+  );
+  handle(
+    IPC.confirmAdoptionBooking,
+    async (_event, input: { registrationId: string; adoptionDate: string }) =>
+      mutate(
+        (service) => void service.confirmAdoptionBooking(input.registrationId, input.adoptionDate),
+      ),
+  );
+  handle(
+    IPC.createPartnerPlace,
+    async (_event, input: { name: string; address?: string; notes?: string }) =>
+      mutate((service) => void service.createPartnerPlace(input.name, input.address, input.notes)),
+  );
+  handle(IPC.deletePartnerPlace, async (_event, id: string) =>
+    mutate((service) => void service.deletePartnerPlace(id)),
+  );
+  handle(
+    IPC.declareSickness,
+    async (
+      _event,
+      input: {
+        catId: string;
+        disease: string;
+        declaredAt: string;
+        lookbackDays: number;
+        notes?: string;
+      },
+    ) => {
+      const draft = structuredClone(dataset);
+      const result = new CatService(draft).declareSickness(
+        input.catId,
+        input.disease,
+        input.declaredAt,
+        input.lookbackDays,
+        input.notes,
+      );
+      await repository.save(draft);
+      dataset = draft;
+      return { snapshot: snapshot(), exposures: result.exposures };
+    },
+  );
+  handle(
+    IPC.resolveHealthAlert,
+    async (_event, input: { alertId: string; resolvedAt: string; notes?: string }) =>
+      mutate(
+        (service) => void service.resolveHealthAlert(input.alertId, input.resolvedAt, input.notes),
+      ),
+  );
+  handle(IPC.getHealthExposures, async (_event, healthAlertId: string) =>
+    new CatService(dataset).getHealthExposures(healthAlertId),
+  );
+  handle(IPC.createSponsorship, async (_event, input: import("../shared/types").SponsorshipInput) =>
+    mutate((service) => void service.createSponsorship(input)),
+  );
+  handle(
+    IPC.updateSponsorship,
+    async (_event, input: import("../shared/types").SponsorshipInput & { id: string }) =>
+      mutate((service) => void service.createSponsorship(input, input.id)),
+  );
+  handle(
+    IPC.declareCatDeceased,
+    async (_event, input: { catId: string; date: string; notes?: string }) =>
+      mutate((service) => void service.declareCatDeceased(input.catId, input.date, input.notes)),
+  );
+  handle(IPC.createTask, async (_event, input: import("../shared/types").TaskInput) =>
+    mutate((service) => void service.createTask(input)),
+  );
+  handle(IPC.recordCare, async (_event, input: import("../shared/types").CareRecordInput) =>
+    mutate((service) => void service.recordCare(input)),
+  );
+  handle(IPC.recordCatHistory, async (_event, input: import("../shared/types").CatHistoryInput) =>
+    mutate((service) => void service.recordCatHistory(input)),
+  );
+  handle(IPC.deleteCatEvent, async (_event, eventId: string) =>
+    mutate((service) => void service.deleteCatEvent(eventId)),
+  );
+  handle(
+    IPC.completeTask,
+    async (_event, input: { id: string; completedAt: string; nextDueDate?: string }) =>
+      mutate(
+        (service) => void service.completeTask(input.id, input.completedAt, input.nextDueDate),
+      ),
+  );
   handle(IPC.chooseDataset, async () => {
-    const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
-    if (result.canceled || !result.filePaths[0]) return null;
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      return null;
+    }
     const opened = await openDataset(result.filePaths[0]);
     preferences.realDatasetDirectory = result.filePaths[0];
     await saveAppPreferences(preferencesPath, preferences);
@@ -194,9 +372,11 @@ function registerHandlers(): void {
   handle(IPC.chooseLegacyCsv, async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
-      filters: [{ name: "Fichiers CSV", extensions: ["csv"] }]
+      filters: [{ name: "Fichiers CSV", extensions: ["csv"] }],
     });
-    if (result.canceled || !result.filePaths[0]) return null;
+    if (result.canceled || !result.filePaths[0]) {
+      return null;
+    }
     const path = result.filePaths[0];
     return previewLegacyCsv(await readFile(path, "utf8"), path);
   });
@@ -221,8 +401,8 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
-    }
+      sandbox: true,
+    },
   });
   window.removeMenu();
   window.loadFile(join(__dirname, "../dist/index.html"));
@@ -239,14 +419,21 @@ app.whenReady().then(async () => {
   preferences = await loadAppPreferences(preferencesPath, join(userDataDirectory, "dataset"));
   showDemoWelcome = !preferences.demoWelcomeSeen;
   await saveAppPreferences(preferencesPath, preferences);
-  await activateMode(forcedDemoMode || preferences.demoMode, forcedDemoMode && process.env.CAT_DISPENSER_DEMO_RESET === "1");
+  await activateMode(
+    forcedDemoMode || preferences.demoMode,
+    forcedDemoMode && process.env.CAT_DISPENSER_DEMO_RESET === "1",
+  );
   registerHandlers();
   createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
   });
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });

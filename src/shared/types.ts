@@ -156,9 +156,20 @@ export interface PartnerPlace {
 }
 
 export type CatEventType =
-  | "REGISTERED" | "PLACED_IN_FOSTER" | "FOSTER_ENDED" | "SENT_TO_REFUGE"
-  | "REFUGE_ZONE_CHANGED" | "LEFT_REFUGE" | "ADOPTED" | "RETURNED"
-  | "LOST" | "DECEASED" | "TRANSFERRED" | "DECLARED_SICK" | "RECOVERED" | "NOTE_ADDED";
+  | "REGISTERED"
+  | "PLACED_IN_FOSTER"
+  | "FOSTER_ENDED"
+  | "SENT_TO_REFUGE"
+  | "REFUGE_ZONE_CHANGED"
+  | "LEFT_REFUGE"
+  | "ADOPTED"
+  | "RETURNED"
+  | "LOST"
+  | "DECEASED"
+  | "TRANSFERRED"
+  | "DECLARED_SICK"
+  | "RECOVERED"
+  | "NOTE_ADDED";
 
 export interface CatEvent {
   id: string;
@@ -207,9 +218,18 @@ export interface FollowUp {
 }
 
 export interface Sponsorship {
-  id: string; catId: string; firstName: string; lastName: string; email: string;
-  monthlyAmount: number; startDate: string; endDate: string; paymentNotes: string; notes: string;
-  createdAt: string; updatedAt: string;
+  id: string;
+  catId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  monthlyAmount: number;
+  startDate: string;
+  endDate: string;
+  paymentNotes: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Dataset {
@@ -262,16 +282,54 @@ export interface CatInput {
   healthStatus?: HealthStatus;
   intakeDate?: string;
   notes?: string;
-  description?: string; photo?: string; okWithCats?: boolean | null; okWithDogs?: boolean | null; okWithChildren?: boolean | null;
-  medications?: string; medicationSchedule?: string; medicationEndDate?: string; vaccines?: string; deworming?: string; antiFlea?: string;
+  description?: string;
+  photo?: string;
+  okWithCats?: boolean | null;
+  okWithDogs?: boolean | null;
+  okWithChildren?: boolean | null;
+  medications?: string;
+  medicationSchedule?: string;
+  medicationEndDate?: string;
+  vaccines?: string;
+  deworming?: string;
+  antiFlea?: string;
 }
 
-export interface CatUpdateInput extends Partial<CatInput> { id: string; }
-export interface SponsorshipInput { catId: string; firstName: string; lastName: string; email?: string; monthlyAmount: number; startDate: string; endDate?: string; paymentNotes?: string; notes?: string; }
+export interface CatUpdateInput extends Partial<CatInput> {
+  id: string;
+}
+export interface SponsorshipInput {
+  catId: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  monthlyAmount: number;
+  startDate: string;
+  endDate?: string;
+  paymentNotes?: string;
+  notes?: string;
+}
 export type CareTaskType = "VERMIFUGE" | "ANTI_PUCE" | "VACCIN" | "STERILISATION";
-export interface TaskInput { catId: string; type: CareTaskType; dueDate: string; notes?: string; }
-export interface CareRecordInput { catId: string; type: CareTaskType; completedAt: string; nextDueDate?: string; notes?: string; }
-export interface CatHistoryInput { catId: string; date: string; title: string; notes?: string; nextDate?: string; }
+export interface TaskInput {
+  catId: string;
+  type: CareTaskType;
+  dueDate: string;
+  notes?: string;
+}
+export interface CareRecordInput {
+  catId: string;
+  type: CareTaskType;
+  completedAt: string;
+  nextDueDate?: string;
+  notes?: string;
+}
+export interface CatHistoryInput {
+  catId: string;
+  date: string;
+  title: string;
+  notes?: string;
+  nextDate?: string;
+}
 
 export interface FamilyInput {
   label?: string;
@@ -345,10 +403,32 @@ export interface HealthExposure {
 }
 
 export type ImportSeverity = "error" | "warning";
-export interface ImportIssue { rowNumber: number; field: string; severity: ImportSeverity; message: string; }
-export interface LegacyImportRow { sourceRowNumber: number; values: Record<string, string>; issues: ImportIssue[]; importable: boolean; }
-export interface LegacyImportPreview { sourcePath: string; headers: string[]; rows: LegacyImportRow[]; issueCount: number; errorCount: number; warningCount: number; }
-export interface ImportCommitResult { importedCats: number; importedFamilies: number; importedAdoptions: number; skippedRows: number; }
+export interface ImportIssue {
+  rowNumber: number;
+  field: string;
+  severity: ImportSeverity;
+  message: string;
+}
+export interface LegacyImportRow {
+  sourceRowNumber: number;
+  values: Record<string, string>;
+  issues: ImportIssue[];
+  importable: boolean;
+}
+export interface LegacyImportPreview {
+  sourcePath: string;
+  headers: string[];
+  rows: LegacyImportRow[];
+  issueCount: number;
+  errorCount: number;
+  warningCount: number;
+}
+export interface ImportCommitResult {
+  importedCats: number;
+  importedFamilies: number;
+  importedAdoptions: number;
+  skippedRows: number;
+}
 
 export interface CatAppApi {
   bootstrap(): Promise<AppSnapshot>;
@@ -357,28 +437,74 @@ export interface CatAppApi {
   createCat(input: CatInput): Promise<AppSnapshot>;
   updateCat(input: CatUpdateInput): Promise<AppSnapshot>;
   createFamily(input: FamilyInput): Promise<AppSnapshot>;
-  addFamilyHoliday(input: { familyId: string; startDate: string; endDate: string; notes?: string }): Promise<AppSnapshot>;
+  addFamilyHoliday(input: {
+    familyId: string;
+    startDate: string;
+    endDate: string;
+    notes?: string;
+  }): Promise<AppSnapshot>;
   createAdopter(input: AdopterInput): Promise<AppSnapshot>;
   assessPlacement(input: PlacementInput): Promise<PlacementAssessment>;
   startPlacement(input: PlacementInput): Promise<AppSnapshot>;
-  endPlacement(input: { placementId: string; endDate: string; outcome?: string }): Promise<AppSnapshot>;
-  sendToRefuge(input: { catId: string; zoneId: string; date: string; reason?: string; notes?: string }): Promise<AppSnapshot>;
+  endPlacement(input: {
+    placementId: string;
+    endDate: string;
+    outcome?: string;
+  }): Promise<AppSnapshot>;
+  sendToRefuge(input: {
+    catId: string;
+    zoneId: string;
+    date: string;
+    reason?: string;
+    notes?: string;
+  }): Promise<AppSnapshot>;
   createRefugeZone(input: { name: string; description?: string }): Promise<AppSnapshot>;
   updateRefugeZone(input: { id: string; name: string; description?: string }): Promise<AppSnapshot>;
   deleteRefugeZone(id: string): Promise<AppSnapshot>;
   createAdoption(input: AdoptionInput): Promise<AppSnapshot>;
   createAdoptionWithNewFamily(input: AdoptionWithNewFamilyInput): Promise<AppSnapshot>;
-  returnAdoption(input: { adoptionId: string; date: string; notes?: string; refugeZoneId?: string }): Promise<AppSnapshot>;
+  returnAdoption(input: {
+    adoptionId: string;
+    date: string;
+    notes?: string;
+    refugeZoneId?: string;
+  }): Promise<AppSnapshot>;
   createAdoptionDay(input: AdoptionDayInput): Promise<AppSnapshot>;
   getAdoptionDaySuggestions(adoptionDayId: string): Promise<AdoptionDaySuggestionGroup[]>;
-  addCatsToAdoptionDay(input: { adoptionDayId: string; catIds: string[]; overrideWarnings?: boolean; overrideReason?: string }): Promise<AppSnapshot>;
+  addCatsToAdoptionDay(input: {
+    adoptionDayId: string;
+    catIds: string[];
+    overrideWarnings?: boolean;
+    overrideReason?: string;
+  }): Promise<AppSnapshot>;
   withdrawCatFromAdoptionDay(registrationId: string): Promise<AppSnapshot>;
-  bookCatForAdoption(input: { registrationId: string; adopterId: string; bookedAt: string }): Promise<AppSnapshot>;
-  confirmAdoptionBooking(input: { registrationId: string; adoptionDate: string }): Promise<AppSnapshot>;
-  createPartnerPlace(input: { name: string; address?: string; notes?: string }): Promise<AppSnapshot>;
+  bookCatForAdoption(input: {
+    registrationId: string;
+    adopterId: string;
+    bookedAt: string;
+  }): Promise<AppSnapshot>;
+  confirmAdoptionBooking(input: {
+    registrationId: string;
+    adoptionDate: string;
+  }): Promise<AppSnapshot>;
+  createPartnerPlace(input: {
+    name: string;
+    address?: string;
+    notes?: string;
+  }): Promise<AppSnapshot>;
   deletePartnerPlace(id: string): Promise<AppSnapshot>;
-  declareSickness(input: { catId: string; disease: string; declaredAt: string; lookbackDays: number; notes?: string }): Promise<{ snapshot: AppSnapshot; exposures: HealthExposure[] }>;
-  resolveHealthAlert(input: { alertId: string; resolvedAt: string; notes?: string }): Promise<AppSnapshot>;
+  declareSickness(input: {
+    catId: string;
+    disease: string;
+    declaredAt: string;
+    lookbackDays: number;
+    notes?: string;
+  }): Promise<{ snapshot: AppSnapshot; exposures: HealthExposure[] }>;
+  resolveHealthAlert(input: {
+    alertId: string;
+    resolvedAt: string;
+    notes?: string;
+  }): Promise<AppSnapshot>;
   getHealthExposures(healthAlertId: string): Promise<HealthExposure[]>;
   createSponsorship(input: SponsorshipInput): Promise<AppSnapshot>;
   updateSponsorship(input: SponsorshipInput & { id: string }): Promise<AppSnapshot>;
@@ -387,8 +513,14 @@ export interface CatAppApi {
   recordCare(input: CareRecordInput): Promise<AppSnapshot>;
   recordCatHistory(input: CatHistoryInput): Promise<AppSnapshot>;
   deleteCatEvent(eventId: string): Promise<AppSnapshot>;
-  completeTask(input: { id: string; completedAt: string; nextDueDate?: string }): Promise<AppSnapshot>;
+  completeTask(input: {
+    id: string;
+    completedAt: string;
+    nextDueDate?: string;
+  }): Promise<AppSnapshot>;
   chooseAndPreviewLegacyCsv(): Promise<LegacyImportPreview | null>;
-  commitLegacyImport(preview: LegacyImportPreview): Promise<{ snapshot: AppSnapshot; result: ImportCommitResult }>;
+  commitLegacyImport(
+    preview: LegacyImportPreview,
+  ): Promise<{ snapshot: AppSnapshot; result: ImportCommitResult }>;
   chooseDatasetDirectory(): Promise<AppSnapshot | null>;
 }

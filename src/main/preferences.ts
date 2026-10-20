@@ -11,20 +11,27 @@ export function defaultAppPreferences(realDatasetDirectory: string): AppPreferen
   return {
     demoMode: true,
     demoWelcomeSeen: false,
-    realDatasetDirectory
+    realDatasetDirectory,
   };
 }
 
-export async function loadAppPreferences(path: string, defaultRealDatasetDirectory: string): Promise<AppPreferences> {
+export async function loadAppPreferences(
+  path: string,
+  defaultRealDatasetDirectory: string,
+): Promise<AppPreferences> {
   const defaults = defaultAppPreferences(defaultRealDatasetDirectory);
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<AppPreferences>;
     return {
       demoMode: typeof parsed.demoMode === "boolean" ? parsed.demoMode : defaults.demoMode,
-      demoWelcomeSeen: typeof parsed.demoWelcomeSeen === "boolean" ? parsed.demoWelcomeSeen : defaults.demoWelcomeSeen,
-      realDatasetDirectory: typeof parsed.realDatasetDirectory === "string" && parsed.realDatasetDirectory.trim()
-        ? parsed.realDatasetDirectory
-        : defaults.realDatasetDirectory
+      demoWelcomeSeen:
+        typeof parsed.demoWelcomeSeen === "boolean"
+          ? parsed.demoWelcomeSeen
+          : defaults.demoWelcomeSeen,
+      realDatasetDirectory:
+        typeof parsed.realDatasetDirectory === "string" && parsed.realDatasetDirectory.trim()
+          ? parsed.realDatasetDirectory
+          : defaults.realDatasetDirectory,
     };
   } catch {
     return defaults;

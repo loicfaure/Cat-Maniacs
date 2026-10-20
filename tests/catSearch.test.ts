@@ -22,25 +22,44 @@ function cat(index: number, overrides: Partial<CatView> = {}): CatView {
     currentFamilyId: "",
     currentRefugeZoneId: "",
     currentLocationLabel: "",
-    ...overrides
+    ...overrides,
   };
 }
 
 describe("adoption cat search", () => {
   it("limits the initial result list to ten cats", () => {
-    const result = searchAdoptionCats(Array.from({ length: 25 }, (_, index) => cat(index)), [], "");
+    const result = searchAdoptionCats(
+      Array.from({ length: 25 }, (_, index) => cat(index)),
+      [],
+      "",
+    );
     expect(result.matches).toHaveLength(25);
     expect(result.visible).toHaveLength(10);
   });
 
   it("finds cats by name, ICAD or foster family without accents", () => {
     const family = {
-      id: "family-1", label: "Famille Hébert", courtesyTitle: "", firstName: "Léa",
-      lastName: "Hébert", email: "", phone: "", address: "", maxCapacity: 3, acceptedProfiles: ["ADULT"], notes: "", createdAt: "", updatedAt: ""
+      id: "family-1",
+      label: "Famille Hébert",
+      courtesyTitle: "",
+      firstName: "Léa",
+      lastName: "Hébert",
+      email: "",
+      phone: "",
+      address: "",
+      maxCapacity: 3,
+      acceptedProfiles: ["ADULT"],
+      notes: "",
+      createdAt: "",
+      updatedAt: "",
     } satisfies Family;
     const cats = [
-      cat(1, { name: "Étoile", identificationNumber: "250260123456789", currentFamilyId: family.id }),
-      cat(2, { name: "Milo" })
+      cat(1, {
+        name: "Étoile",
+        identificationNumber: "250260123456789",
+        currentFamilyId: family.id,
+      }),
+      cat(2, { name: "Milo" }),
     ];
     expect(searchAdoptionCats(cats, [family], "etoile").visible[0].name).toBe("Étoile");
     expect(searchAdoptionCats(cats, [family], "6789").visible[0].name).toBe("Étoile");

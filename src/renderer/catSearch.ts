@@ -9,22 +9,28 @@ export function searchAdoptionCats(
   cats: CatView[],
   families: Family[],
   query: string,
-  limit = 10
+  limit = 10,
 ): AdoptionCatSearchResult {
   const normalizedQuery = normalize(query);
   const familyById = new Map(families.map((family) => [family.id, family]));
   const matches = cats
     .filter((cat) => {
-      if (!normalizedQuery) return true;
+      if (!normalizedQuery) {
+        return true;
+      }
       const family = familyById.get(cat.currentFamilyId);
-      return normalize([
-        cat.name,
-        cat.identificationNumber,
-        cat.status,
-        family?.label,
-        family?.firstName,
-        family?.lastName
-      ].filter(Boolean).join(" ")).includes(normalizedQuery);
+      return normalize(
+        [
+          cat.name,
+          cat.identificationNumber,
+          cat.status,
+          family?.label,
+          family?.firstName,
+          family?.lastName,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ).includes(normalizedQuery);
     })
     .sort((left, right) => left.name.localeCompare(right.name, "fr", { sensitivity: "base" }));
 
