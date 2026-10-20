@@ -2,6 +2,7 @@ import {
   activeAdoption, activePlacement, activeRefugeStay, assertIsoDate, getCatStatus,
   normalizeIdentification, requireAdopter, requireCat, requireFamily
 } from "../domain/dataset";
+import { profileForBirthDate } from "../domain/catAge";
 import { findHealthExposures } from "../domain/healthTracing";
 import type {
   AdopterInput, AdoptionDayInput, AdoptionDaySuggestionGroup, AdoptionInput,
@@ -37,12 +38,12 @@ export class CatService {
     const catId = id();
     this.dataset.cats.push({
       id: catId, name, identificationNumber, birthDate: input.birthDate ?? "", sex: input.sex ?? "UNKNOWN",
-      profile: input.profile ?? "ADULT", sterilizationStatus: input.sterilizationStatus ?? "UNKNOWN",
+      profile: input.profile === "SPECIAL_NEEDS" ? "SPECIAL_NEEDS" : profileForBirthDate(input.birthDate ?? "") ?? input.profile ?? "ADULT", sterilizationStatus: input.sterilizationStatus ?? "UNKNOWN",
       adoptionEligibility: input.adoptionEligibility ?? "ELIGIBLE", adoptionBlockedReason: input.adoptionBlockedReason?.trim() ?? "",
       healthStatus: input.healthStatus ?? "HEALTHY", intakeDate, notes: input.notes?.trim() ?? "",
       description: input.description?.trim() ?? "", photo: input.photo?.trim() ?? "", okWithCats: input.okWithCats ?? null,
       okWithDogs: input.okWithDogs ?? null, okWithChildren: input.okWithChildren ?? null, medications: input.medications?.trim() ?? "", medicationSchedule: input.medicationSchedule?.trim() ?? "", medicationEndDate: input.medicationEndDate ?? "",
-      vaccines: input.vaccines?.trim() ?? "", deworming: input.deworming?.trim() ?? "",
+      vaccines: input.vaccines?.trim() ?? "", deworming: input.deworming?.trim() ?? "", antiFlea: input.antiFlea?.trim() ?? "",
       createdAt: timestamp, updatedAt: timestamp
     });
     addEvent(this.dataset, catId, "REGISTERED", intakeDate);
@@ -58,8 +59,9 @@ export class CatService {
       if (number && this.dataset.cats.some((candidate) => candidate.id !== cat.id && candidate.identificationNumber === number)) throw new Error("Ce numéro d'identification est déjà utilisé.");
       cat.identificationNumber = number;
     }
-    const fields: Array<keyof CatInput> = ["name", "birthDate", "sex", "profile", "sterilizationStatus", "adoptionEligibility", "adoptionBlockedReason", "healthStatus", "intakeDate", "notes", "description", "photo", "okWithCats", "okWithDogs", "okWithChildren", "medications", "medicationSchedule", "medicationEndDate", "vaccines", "deworming"];
+    const fields: Array<keyof CatInput> = ["name", "birthDate", "sex", "profile", "sterilizationStatus", "adoptionEligibility", "adoptionBlockedReason", "healthStatus", "intakeDate", "notes", "description", "photo", "okWithCats", "okWithDogs", "okWithChildren", "medications", "medicationSchedule", "medicationEndDate", "vaccines", "deworming", "antiFlea"];
     for (const field of fields) if (input[field] !== undefined) (cat as unknown as Record<string, unknown>)[field] = typeof input[field] === "string" ? input[field].trim() : input[field];
+    if (cat.profile !== "SPECIAL_NEEDS") cat.profile = profileForBirthDate(cat.birthDate) ?? (input.profile && input.profile !== "SPECIAL_NEEDS" ? input.profile : cat.profile);
     cat.updatedAt = now();
     touch(this.dataset);
     return this.dataset;
@@ -113,6 +115,12 @@ export class CatService {
     const timestamp = now();
     this.dataset.catEvents.push({ id: id(), catId: input.catId, type: "NOTE_ADDED", date: input.date, label: input.title.trim(), notes: input.notes?.trim() ?? "", createdAt: timestamp });
     if (input.nextDate) this.dataset.tasks.push({ id: id(), catId: input.catId, type: input.title.trim(), status: "OPEN", dueDate: input.nextDate, completedAt: "", notes: input.notes?.trim() ?? "", createdAt: timestamp, updatedAt: timestamp });
+    touch(this.dataset); return this.dataset;
+  }
+  deleteCatEvent(eventId: string): Dataset {
+    const index = this.dataset.catEvents.findIndex((event) => event.id === eventId && event.type === "NOTE_ADDED");
+    if (index < 0) throw new Error("Événement introuvable ou non supprimable.");
+    this.dataset.catEvents.splice(index, 1);
     touch(this.dataset); return this.dataset;
   }
   completeTask(taskId: string, completedAt: string, nextDueDate?: string): Dataset {

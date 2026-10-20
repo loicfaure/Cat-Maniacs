@@ -28,6 +28,7 @@ export interface Cat {
   medicationEndDate?: string;
   vaccines?: string;
   deworming?: string;
+  antiFlea?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -262,12 +263,12 @@ export interface CatInput {
   intakeDate?: string;
   notes?: string;
   description?: string; photo?: string; okWithCats?: boolean | null; okWithDogs?: boolean | null; okWithChildren?: boolean | null;
-  medications?: string; medicationSchedule?: string; medicationEndDate?: string; vaccines?: string; deworming?: string;
+  medications?: string; medicationSchedule?: string; medicationEndDate?: string; vaccines?: string; deworming?: string; antiFlea?: string;
 }
 
 export interface CatUpdateInput extends Partial<CatInput> { id: string; }
 export interface SponsorshipInput { catId: string; firstName: string; lastName: string; email?: string; monthlyAmount: number; startDate: string; endDate?: string; paymentNotes?: string; notes?: string; }
-export type CareTaskType = "VERMIFUGE" | "VACCIN" | "STERILISATION";
+export type CareTaskType = "VERMIFUGE" | "ANTI_PUCE" | "VACCIN" | "STERILISATION";
 export interface TaskInput { catId: string; type: CareTaskType; dueDate: string; notes?: string; }
 export interface CareRecordInput { catId: string; type: CareTaskType; completedAt: string; nextDueDate?: string; notes?: string; }
 export interface CatHistoryInput { catId: string; date: string; title: string; notes?: string; nextDate?: string; }
@@ -385,6 +386,7 @@ export interface CatAppApi {
   createTask(input: TaskInput): Promise<AppSnapshot>;
   recordCare(input: CareRecordInput): Promise<AppSnapshot>;
   recordCatHistory(input: CatHistoryInput): Promise<AppSnapshot>;
+  deleteCatEvent(eventId: string): Promise<AppSnapshot>;
   completeTask(input: { id: string; completedAt: string; nextDueDate?: string }): Promise<AppSnapshot>;
   chooseAndPreviewLegacyCsv(): Promise<LegacyImportPreview | null>;
   commitLegacyImport(preview: LegacyImportPreview): Promise<{ snapshot: AppSnapshot; result: ImportCommitResult }>;

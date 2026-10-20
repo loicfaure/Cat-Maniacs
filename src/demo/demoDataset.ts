@@ -63,7 +63,8 @@ export function createDemoDataset(): Dataset {
       medicationSchedule: index === 4 ? "08:00 et 20:00" : index === 18 ? "Chaque jour" : "",
       medicationEndDate: index === 4 ? "2026-10-25" : "",
       vaccines: index % 3 === 0 ? "Rappel prévu le 28/10/2026" : "Primo-vaccination à jour",
-      deworming: index % 4 === 0 ? "À renouveler prochainement" : "Dernière prise le 01/09/2026"
+      deworming: index % 4 === 0 ? "À renouveler prochainement" : "Dernière prise le 01/09/2026",
+      antiFlea: index % 5 === 0 ? "Prochaine application le 05/11/2026" : "Dernière application le 05/10/2026"
     });
   });
 

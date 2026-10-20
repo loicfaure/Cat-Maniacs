@@ -38,6 +38,7 @@ const api: CatAppApi = {
   createTask: (input) => ipcRenderer.invoke(IPC.createTask, input),
   recordCare: (input) => ipcRenderer.invoke(IPC.recordCare, input),
   recordCatHistory: (input) => ipcRenderer.invoke(IPC.recordCatHistory, input),
+  deleteCatEvent: (eventId) => ipcRenderer.invoke(IPC.deleteCatEvent, eventId),
   completeTask: (input) => ipcRenderer.invoke(IPC.completeTask, input),
   chooseAndPreviewLegacyCsv: () => ipcRenderer.invoke(IPC.chooseLegacyCsv),
   commitLegacyImport: (preview) => ipcRenderer.invoke(IPC.commitLegacyImport, preview),

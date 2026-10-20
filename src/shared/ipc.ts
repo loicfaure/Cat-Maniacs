@@ -35,6 +35,7 @@ export const IPC = {
   createTask: "tasks:create",
   recordCare: "tasks:record-care",
   recordCatHistory: "cats:record-history",
+  deleteCatEvent: "cats:delete-event",
   completeTask: "tasks:complete",
   chooseLegacyCsv: "legacy:choose-preview",
   commitLegacyImport: "legacy:commit"

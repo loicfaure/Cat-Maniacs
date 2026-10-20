@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CatService } from "../src/application/catService";
+import { CURRENT_SCHEMA_VERSION } from "../src/domain/dataset";
 import { DatasetRepository } from "../src/infrastructure/datasetRepository";
 
 describe("CSV dataset repository", () => {
@@ -20,6 +21,8 @@ describe("CSV dataset repository", () => {
     expect(reloaded.dataset.families[0].acceptedProfiles).toEqual(["ADULT", "KITTEN"]);
     expect(reloaded.dataset.adopters[0].lastName).toBe("Durand");
     expect(await readFile(join(directory, "cats.csv"), "utf8")).toContain("Très sociable");
-    expect(await readFile(join(directory, "dataset.json"), "utf8")).toContain('"schemaVersion": 3');
+    const manifest = JSON.parse(await readFile(join(directory, "dataset.json"), "utf8"));
+    expect(manifest.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(reloaded.dataset.schemaVersion).toBe(manifest.schemaVersion);
   });
 });

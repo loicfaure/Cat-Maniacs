@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { CatService } from "../application/catService";
 import { createDemoDataset } from "../demo/demoDataset";
 import { deriveCatView } from "../domain/dataset";
+import { profileForBirthDate } from "../domain/catAge";
 import { DatasetRepository } from "../infrastructure/datasetRepository";
 import { commitLegacyPreview, previewLegacyCsv } from "../legacy/legacyImport";
 import { IPC } from "../shared/ipc";
@@ -41,10 +42,29 @@ function snapshot(): AppSnapshot {
   };
 }
 
+async function synchronizeAgeProfiles(): Promise<void> {
+  const timestamp = new Date().toISOString();
+  let changed = false;
+  for (const cat of dataset.cats) {
+    if (cat.profile === "SPECIAL_NEEDS") continue;
+    const profile = profileForBirthDate(cat.birthDate);
+    if (profile && profile !== cat.profile) {
+      cat.profile = profile;
+      cat.updatedAt = timestamp;
+      changed = true;
+    }
+  }
+  if (changed) {
+    dataset.updatedAt = timestamp;
+    await repository.save(dataset);
+  }
+}
+
 async function openDataset(directory: string): Promise<AppSnapshot> {
   const opened = await DatasetRepository.open(directory);
   repository = opened.repository;
   dataset = opened.dataset;
+  await synchronizeAgeProfiles();
   return snapshot();
 }
 
@@ -87,7 +107,7 @@ function handle(channel: string, callback: (event: IpcMainInvokeEvent, ...args: 
 }
 
 function registerHandlers(): void {
-  handle(IPC.bootstrap, async () => snapshot());
+  handle(IPC.bootstrap, async () => { await synchronizeAgeProfiles(); return snapshot(); });
   handle(IPC.setDemoMode, async (_event, enabled: boolean) => {
     if (typeof enabled !== "boolean") throw new Error("Mode de démonstration invalide.");
     const nextSnapshot = await activateMode(enabled);
@@ -161,6 +181,7 @@ function registerHandlers(): void {
   handle(IPC.createTask, async (_event, input: import("../shared/types").TaskInput) => mutate((service) => void service.createTask(input)));
   handle(IPC.recordCare, async (_event, input: import("../shared/types").CareRecordInput) => mutate((service) => void service.recordCare(input)));
   handle(IPC.recordCatHistory, async (_event, input: import("../shared/types").CatHistoryInput) => mutate((service) => void service.recordCatHistory(input)));
+  handle(IPC.deleteCatEvent, async (_event, eventId: string) => mutate((service) => void service.deleteCatEvent(eventId)));
   handle(IPC.completeTask, async (_event, input: { id: string; completedAt: string; nextDueDate?: string }) => mutate((service) => void service.completeTask(input.id, input.completedAt, input.nextDueDate)));
   handle(IPC.chooseDataset, async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });

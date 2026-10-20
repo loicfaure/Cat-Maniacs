@@ -13,7 +13,7 @@ if (!executable) {
   console.error([
     "Aucun binaire Electron n'est disponible.",
     "Les scripts d'installation npm sont désactivés volontairement dans .npmrc.",
-    "Définissez ELECTRON_BINARY vers un binaire Electron 43 déjà installé."
+    "Définissez ELECTRON_BINARY vers un binaire Electron 44 déjà installé."
   ].join("\n"));
   process.exit(1);
 }

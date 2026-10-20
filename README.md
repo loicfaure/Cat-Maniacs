@@ -75,6 +75,7 @@ Les fichiers de données et exports (`CSV`, tableurs et dossier `dataset`) sont 
 ```bash
 npm run dev        # build puis lancement Electron
 npm run demo       # jeu isolé réinitialisé avec 64 chats de démonstration
+npm run demo:workflow # rejoue un parcours UI automatisé dans un jeu démo réinitialisé
 npm run privacy    # contrôle les fichiers publiables et l'identité des commits
 npm run typecheck
 npm test
@@ -100,6 +101,8 @@ Les exécutables ne sont pas encore signés : Windows peut donc afficher un aver
 Au premier lancement, l'application ouvre automatiquement un registre de démonstration distinct des vraies données et explique son fonctionnement. La fenêtre de bienvenue permet aussi de choisir immédiatement **Utiliser mon registre** sans activer durablement la démonstration. Le mode choisi reste actif entre les lancements ; le bouton en bas à gauche permet ensuite de changer de mode sans mélanger les deux registres.
 
 Le registre de démonstration contient 64 chats, des familles d'accueil, des adoptants distincts, trois zones de refuge, des placements, des adoptions et retours, deux événements, des vacances et une alerte sanitaire. La famille « Maison des cinq chats » permet de tester immédiatement l'ajout d'un cheptel complet à une journée d'adoption. `npm run demo` force ce mode et réinitialise ses données pour les tests manuels.
+
+`npm run demo:workflow` réinitialise le registre de démonstration puis rejoue les étapes suivantes dans l'interface Electron : ouvre chaque section principale, crée un chat QA, vérifie que « Donner des nouvelles » est désactivé sans parrain actif, ajoute un événement dans la fiche puis le supprime, et ouvre l'écran e-mail pour un chat parrainé. Le script laisse ensuite la fenêtre ouverte. Fermez une autre fenêtre de démo avant de le lancer : le registre de démonstration sera réinitialisé. Sous Linux uniquement si Electron ne démarre pas à cause du bac à sable, utilisez `CAT_DISPENSER_NO_SANDBOX=1 npm run demo:workflow`.
 
 ## Prochaine intégration
 

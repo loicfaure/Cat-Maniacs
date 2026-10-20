@@ -147,6 +147,7 @@ main { grid-column: 2; min-width: 0; }
 
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }.field { min-width: 0; display: grid; align-content: start; gap: 6px; }.field.wide { grid-column: 1 / -1; }.field > span { color: #69716b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
 input, select, textarea { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid #d7d7d0; border-radius: 8px; outline: none; color: #343a35; background: white; font-size: 12px; }
+.french-date-input { font-variant-numeric: tabular-nums; }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { border-color: #77917f; box-shadow: 0 0 0 3px rgba(119,145,127,.12); }
 .form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }.checks { min-height: 40px; display: flex; align-items: center; gap: 22px; }.checks label { display: flex; align-items: center; gap: 7px; font-size: 12px; }.checks input { width: auto; min-height: 0; }
@@ -280,7 +281,9 @@ input:focus, select:focus, textarea:focus { border-color: #77917f; box-shadow: 0
 .cat-history-sidebar { min-height: 0; overflow: hidden; }
 .cat-history-sidebar .panel { min-height: 0; overflow-y: auto; }
 .cat-history-sidebar .detail-history { max-height: none; }
-.cat-history-content, .cat-history-content .panel { height: 100%; }
+.cat-history-content { display: grid; grid-template-rows: minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; }
+.cat-history-content.with-event-form { grid-template-rows: minmax(0, 1fr) minmax(0, 1.2fr); }
+.cat-history-content > .panel { min-height: 0; height: auto; overflow-y: auto; }
 .column-resizer { position: relative; z-index: 1; min-height: 100%; cursor: col-resize; touch-action: none; }
 .column-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 2px; background: transparent; transition: background .15s ease, width .15s ease; }
 .column-resizer:hover::after, .column-resizer:active::after { left: 2px; width: 4px; background: #72917b; }
