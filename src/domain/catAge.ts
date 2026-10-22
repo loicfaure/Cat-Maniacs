@@ -1,7 +1,10 @@
-import type { CatProfile } from "../shared/types";
+import type { AnimalProfile } from "../core/types";
 
 /** Returns the age-based profile for a birth date, or undefined when it is unknown/invalid. */
-export function profileForBirthDate(birthDate: string, today = new Date()): CatProfile | undefined {
+export function profileForBirthDate(
+  birthDate: string,
+  today = new Date(),
+): AnimalProfile | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate);
   if (!match) {
     return undefined;

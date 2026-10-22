@@ -71,7 +71,7 @@ jobs:
       # The repository disables all lifecycle scripts globally. Run only the
       # audited Electron downloader required to obtain the packaging runtime.
       - name: Download Electron runtime
-        run: node node_modules/electron/install.js
+        run: npm run electron:install
 
       - name: Build ${{ matrix.platform }} packages
         run: ${{ matrix.command }}

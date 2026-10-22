@@ -1,7 +1,7 @@
-import type { CatAppApi } from "../shared/types";
+import type { AnimalAppApi } from "../shared/types";
 
 declare global {
   interface Window {
-    catApp: CatAppApi;
+    catApp: AnimalAppApi;
   }
 }

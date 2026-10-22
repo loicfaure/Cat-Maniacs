@@ -1,11 +1,24 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain } from "electron";
-import { CatService } from "../application/catService";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  type MessageBoxOptions,
+} from "electron";
+import { AnimalService } from "../application/animalService";
+import { mutateDataset } from "../application/mutateDataset";
+import type { DatasetRepositoryPort } from "../application/ports/datasetRepository";
 import { createDemoDataset } from "../demo/demoDataset";
-import { profileForBirthDate } from "../domain/catAge";
-import { deriveCatView } from "../domain/dataset";
+import { deriveAnimalView } from "../domain/dataset";
+import { getSpeciesDefinition, isSpeciesId } from "../domain/species/registry";
+import { TABLES } from "../infrastructure/database/tables";
 import { DatasetRepository } from "../infrastructure/datasetRepository";
+import { runLegacyMigration } from "../infrastructure/migrations/engine";
+import { inspectLegacyDataset } from "../infrastructure/migrations/inspectLegacy";
+import { recoverStaleMigrationBeforeInspection } from "../infrastructure/migrations/transaction";
 import { commitLegacyPreview, previewLegacyCsv } from "../legacy/legacyImport";
 import { IPC } from "../shared/ipc";
 import type {
@@ -13,14 +26,18 @@ import type {
   AdoptionDayInput,
   AdoptionInput,
   AdoptionWithNewFamilyInput,
+  AnimalInput,
+  AnimalUpdateInput,
   AppSnapshot,
-  CatInput,
-  CatUpdateInput,
   Dataset,
+  EmailTemplates,
   FamilyInput,
+  GeneratedEmail,
   LegacyImportPreview,
   PlacementInput,
+  ReminderTemplateKey,
 } from "../shared/types";
+import { openModeDataset } from "./datasetMode";
 import { type AppPreferences, loadAppPreferences, saveAppPreferences } from "./preferences";
 
 const forcedDemoMode = process.env.CAT_DISPENSER_DEMO === "1";
@@ -29,27 +46,168 @@ let showDemoWelcome = false;
 let preferences: AppPreferences;
 let preferencesPath = "";
 let demoDatasetDirectory = "";
-let repository: DatasetRepository;
+let repository: DatasetRepositoryPort;
 let dataset: Dataset;
+let datasetPath = "";
+let mainWindow: BrowserWindow | undefined;
+
+class MigrationCancelledError extends Error {}
+
+function showMessageBox(options: MessageBoxOptions) {
+  return mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options);
+}
 
 function snapshot(): AppSnapshot {
+  const generatedEmails = preferences.generatedEmailsByDataset[dataset.datasetId] ?? [];
   return {
     ...dataset,
-    datasetPath: repository.directory,
+    datasetPath,
     demoMode,
     showDemoWelcome,
-    catViews: dataset.cats.map((cat) => deriveCatView(dataset, cat)),
+    animalViews: dataset.animals.map((cat) => deriveAnimalView(dataset, cat)),
+    emailTemplates: preferences.emailTemplates,
+    generatedEmails,
+    emailOutputDirectory: preferences.emailOutputDirectory,
   };
+}
+
+function renderReminderText(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{(animal|contact|date)\}/g, (_, key: string) => vars[key] ?? "");
+}
+
+async function generateDueEmails(): Promise<void> {
+  const existing = preferences.generatedEmailsByDataset[dataset.datasetId] ?? [];
+  const known = new Set(existing.map((email) => email.reminderKey));
+  const today = new Date().toISOString().slice(0, 10);
+  const latestDate = new Date(Date.now() + preferences.emailTemplates.leadDays * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const views = new Map(
+    dataset.animals.map((animal) => [animal.id, deriveAnimalView(dataset, animal)]),
+  );
+  const created: GeneratedEmail[] = [];
+  const add = (
+    reminderKey: string,
+    animalId: string,
+    key: ReminderTemplateKey,
+    recipient: { email: string; name: string },
+    date: string,
+  ) => {
+    if (!recipient.email || known.has(reminderKey)) {
+      return;
+    }
+    const animal = dataset.animals.find((candidate) => candidate.id === animalId);
+    if (!animal) {
+      return;
+    }
+    const template = preferences.emailTemplates[key];
+    const vars = {
+      animal: animal.name,
+      contact: recipient.name,
+      date: date ? new Date(`${date}T12:00:00`).toLocaleDateString("fr-FR") : "",
+    };
+    const id = crypto.randomUUID();
+    created.push({
+      id,
+      reminderKey,
+      animalId,
+      recipient: recipient.email,
+      recipientName: recipient.name,
+      subject: renderReminderText(template.subject, vars),
+      body: renderReminderText(template.body, vars),
+      createdAt: new Date().toISOString(),
+      acknowledgedAt: "",
+      filename: `${today}-${animal.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")}-${key}-${id.slice(0, 8)}.eml`,
+    });
+    known.add(reminderKey);
+  };
+  for (const task of dataset.tasks) {
+    if (task.status !== "OPEN" || task.dueDate < today || task.dueDate > latestDate) {
+      continue;
+    }
+    const animal = dataset.animals.find((candidate) => candidate.id === task.animalId);
+    const view = views.get(task.animalId);
+    if (!animal || !view || animal.speciesId !== "cat") {
+      continue;
+    }
+    const family =
+      view.status === "FOSTERED"
+        ? dataset.families.find((candidate) => candidate.id === view.currentFamilyId)
+        : undefined;
+    const adoption =
+      view.status === "ADOPTED"
+        ? dataset.adoptions.find(
+            (candidate) => candidate.animalId === animal.id && candidate.status === "ACTIVE",
+          )
+        : undefined;
+    const adopter = adoption
+      ? dataset.adopters.find((candidate) => candidate.id === adoption.adopterId)
+      : undefined;
+    const recipient = family
+      ? { email: family.email, name: family.label }
+      : adopter
+        ? { email: adopter.email, name: adopter.label }
+        : undefined;
+    const key: ReminderTemplateKey | undefined =
+      task.type === "STERILISATION"
+        ? "sterilisation"
+        : family && task.type === "VACCIN"
+          ? "vaccination"
+          : family && task.type === "ANTI_PUCE"
+            ? "antiFlea"
+            : family && task.type === "VERMIFUGE"
+              ? "deworming"
+              : undefined;
+    if (recipient && key) {
+      add(`${key}:${task.id}`, animal.id, key, recipient, task.dueDate);
+    }
+  }
+  for (const adoption of dataset.adoptions) {
+    if (adoption.status !== "ACTIVE" || !adoption.adoptionDate) {
+      continue;
+    }
+    const due = new Date(`${adoption.adoptionDate}T12:00:00`);
+    due.setMonth(due.getMonth() + 6);
+    if (due.toISOString().slice(0, 10) > today) {
+      continue;
+    }
+    const animal = dataset.animals.find((candidate) => candidate.id === adoption.animalId);
+    const adopter = dataset.adopters.find((candidate) => candidate.id === adoption.adopterId);
+    if (
+      !animal ||
+      animal.speciesId !== "cat" ||
+      animal.identificationScheme !== "ICAD" ||
+      animal.sterilizationStatus !== "DONE" ||
+      !adopter
+    ) {
+      continue;
+    }
+    add(
+      `icad:${adoption.id}`,
+      animal.id,
+      "icad",
+      { email: adopter.email, name: adopter.label },
+      adoption.adoptionDate,
+    );
+  }
+  if (created.length) {
+    preferences.generatedEmailsByDataset[dataset.datasetId] = [...existing, ...created];
+    await saveAppPreferences(preferencesPath, preferences);
+  }
 }
 
 async function synchronizeAgeProfiles(): Promise<void> {
   const timestamp = new Date().toISOString();
   let changed = false;
-  for (const cat of dataset.cats) {
+  for (const cat of dataset.animals) {
     if (cat.profile === "SPECIAL_NEEDS") {
       continue;
     }
-    const profile = profileForBirthDate(cat.birthDate);
+    const profile = getSpeciesDefinition(cat.speciesId).deriveProfile?.(cat.birthDate, new Date());
     if (profile && profile !== cat.profile) {
       cat.profile = profile;
       cat.updatedAt = timestamp;
@@ -62,27 +220,62 @@ async function synchronizeAgeProfiles(): Promise<void> {
   }
 }
 
-async function openDataset(directory: string): Promise<AppSnapshot> {
-  const opened = await DatasetRepository.open(directory);
+async function openDataset(directory: string, demo = false): Promise<AppSnapshot> {
+  if (!demo) {
+    await recoverStaleMigrationBeforeInspection(directory);
+    const inspection = await inspectLegacyDataset(directory);
+    if (inspection.format === "legacy") {
+      const result = await runLegacyMigration({
+        directory,
+        tables: TABLES,
+        validateStaged: async (stagedDirectory) => {
+          await DatasetRepository.open(stagedDirectory);
+        },
+        confirm: async (report) => {
+          const counts = Object.entries(report.counts)
+            .map(([table, count]) => `${table}: ${count}`)
+            .join("\n");
+          const response = await showMessageBox({
+            type: "warning",
+            title: "Conversion du registre requise",
+            message: "Ce registre local doit être converti vers le modèle animal v1.",
+            detail: `Une sauvegarde complète sera créée à côté du registre. Le format converti ne pourra pas être ouvert avec la version précédente.\n\nDossier : ${report.directory}\nSchéma source : ${report.sourceSchema}\nSauvegarde : ${join(report.directory, "..", `${report.directory.split(/[\\/]/).filter(Boolean).at(-1)}.legacy-backup-<identifiant>`)}\n\n${counts}`,
+            buttons: ["Sauvegarder et migrer", "Annuler"],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true,
+          });
+          return response.response === 0;
+        },
+      });
+      if (result.status === "cancelled") {
+        throw new MigrationCancelledError("Conversion annulée.");
+      }
+      if (result.status === "migrated") {
+        await showMessageBox({
+          type: "info",
+          title: "Conversion terminée",
+          message: "Le registre a été converti vers le modèle animal v1.",
+          detail: `Sauvegarde complète : ${result.receipt.backupPath}`,
+          buttons: ["Continuer"],
+        });
+      }
+    }
+  }
+  const opened = await openModeDataset(directory, demo, preferences.demoEnabledSpecies);
   repository = opened.repository;
+  datasetPath = directory;
   dataset = opened.dataset;
   await synchronizeAgeProfiles();
   return snapshot();
 }
 
-async function activateMode(enabled: boolean, resetDemo = false): Promise<AppSnapshot> {
+async function activateMode(enabled: boolean): Promise<AppSnapshot> {
   const previousMode = demoMode;
   demoMode = enabled;
   try {
     const directory = enabled ? demoDatasetDirectory : preferences.realDatasetDirectory;
-    if (enabled && resetDemo) {
-      await rm(directory, { recursive: true, force: true });
-    }
-    await openDataset(directory);
-    if (enabled && dataset.cats.length === 0) {
-      dataset = createDemoDataset();
-      await repository.save(dataset, false);
-    }
+    await openDataset(directory, enabled);
     return snapshot();
   } catch (error) {
     demoMode = previousMode;
@@ -90,11 +283,17 @@ async function activateMode(enabled: boolean, resetDemo = false): Promise<AppSna
   }
 }
 
-async function mutate(action: (service: CatService, draft: Dataset) => void): Promise<AppSnapshot> {
-  const draft = structuredClone(dataset);
-  action(new CatService(draft), draft);
-  await repository.save(draft);
-  dataset = draft;
+async function mutate(
+  action: (service: AnimalService, draft: Dataset) => void,
+): Promise<AppSnapshot> {
+  const previousSpecies = dataset.settings.enabledSpecies.join("|");
+  const mutation = await mutateDataset(repository, dataset, action);
+  dataset = mutation.dataset;
+  await generateDueEmails();
+  if (demoMode && dataset.settings.enabledSpecies.join("|") !== previousSpecies) {
+    preferences.demoEnabledSpecies = [...dataset.settings.enabledSpecies];
+    await saveAppPreferences(preferencesPath, preferences);
+  }
   return snapshot();
 }
 
@@ -111,13 +310,14 @@ function handle(
 ): void {
   ipcMain.handle(channel, async (event, ...args) => {
     assertTrustedRenderer(event);
-    return callback(event, ...(args as never[]));
+    return Reflect.apply(callback, undefined, [event, ...args]);
   });
 }
 
 function registerHandlers(): void {
   handle(IPC.bootstrap, async () => {
     await synchronizeAgeProfiles();
+    await generateDueEmails();
     return snapshot();
   });
   handle(IPC.setDemoMode, async (_event, enabled: boolean) => {
@@ -139,11 +339,28 @@ function registerHandlers(): void {
     await saveAppPreferences(preferencesPath, preferences);
     return snapshot();
   });
-  handle(IPC.createCat, async (_event, input: CatInput) =>
-    mutate((service) => void service.createCat(input)),
+  handle(IPC.createAnimal, async (_event, input: AnimalInput) =>
+    mutate((service) => void service.createAnimal(input)),
   );
-  handle(IPC.updateCat, async (_event, input: CatUpdateInput) =>
-    mutate((service) => void service.updateCat(input)),
+  handle(IPC.setEnabledSpecies, async (_event, species: import("../core/types").SpeciesId[]) => {
+    if (!Array.isArray(species) || !species.length || !species.every(isSpeciesId)) {
+      throw new Error("Choisissez au moins une espèce prise en charge.");
+    }
+    if (demoMode) {
+      // Validate before replacing demo data, using the same species lock as a real register.
+      new AnimalService(structuredClone(dataset)).setEnabledSpecies(species);
+      const demoDataset = createDemoDataset([...new Set(species)]);
+      const opened = await DatasetRepository.openDemo(datasetPath, demoDataset);
+      dataset = opened.dataset;
+      repository = opened.repository;
+      preferences.demoEnabledSpecies = [...dataset.settings.enabledSpecies];
+      await saveAppPreferences(preferencesPath, preferences);
+      return snapshot();
+    }
+    return mutate((service) => void service.setEnabledSpecies(species));
+  });
+  handle(IPC.updateAnimal, async (_event, input: AnimalUpdateInput) =>
+    mutate((service) => void service.updateAnimal(input)),
   );
   handle(IPC.createFamily, async (_event, input: FamilyInput) =>
     mutate((service) => void service.createFamily(input)),
@@ -168,7 +385,7 @@ function registerHandlers(): void {
     mutate((service) => void service.createAdopter(input)),
   );
   handle(IPC.assessPlacement, async (_event, input: PlacementInput) =>
-    new CatService(dataset).assessPlacement(input),
+    new AnimalService(dataset).assessPlacement(input),
   );
   handle(IPC.startPlacement, async (_event, input: PlacementInput) =>
     mutate((service) => void service.startPlacement(input)),
@@ -184,12 +401,12 @@ function registerHandlers(): void {
     IPC.sendToRefuge,
     async (
       _event,
-      input: { catId: string; zoneId: string; date: string; reason?: string; notes?: string },
+      input: { animalId: string; zoneId: string; date: string; reason?: string; notes?: string },
     ) =>
       mutate(
         (service) =>
           void service.sendToRefuge(
-            input.catId,
+            input.animalId,
             input.zoneId,
             input.date,
             input.reason,
@@ -197,13 +414,41 @@ function registerHandlers(): void {
           ),
       ),
   );
-  handle(IPC.createRefugeZone, async (_event, input: { name: string; description?: string }) =>
-    mutate((service) => void service.createRefugeZone(input.name, input.description)),
+  handle(
+    IPC.createRefugeZone,
+    async (
+      _event,
+      input: {
+        name: string;
+        description?: string;
+        allowedSpecies?: import("../core/types").SpeciesId[] | null;
+      },
+    ) =>
+      mutate(
+        (service) =>
+          void service.createRefugeZone(input.name, input.description, input.allowedSpecies),
+      ),
   );
   handle(
     IPC.updateRefugeZone,
-    async (_event, input: { id: string; name: string; description?: string }) =>
-      mutate((service) => void service.updateRefugeZone(input.id, input.name, input.description)),
+    async (
+      _event,
+      input: {
+        id: string;
+        name: string;
+        description?: string;
+        allowedSpecies?: import("../core/types").SpeciesId[] | null;
+      },
+    ) =>
+      mutate(
+        (service) =>
+          void service.updateRefugeZone(
+            input.id,
+            input.name,
+            input.description,
+            input.allowedSpecies,
+          ),
+      ),
   );
   handle(IPC.deleteRefugeZone, async (_event, id: string) =>
     mutate((service) => void service.deleteRefugeZone(id)),
@@ -228,7 +473,7 @@ function registerHandlers(): void {
         service.returnAdoption(input.adoptionId, input.date, input.notes);
         if (input.refugeZoneId) {
           service.sendToRefuge(
-            adoption.catId,
+            adoption.animalId,
             input.refugeZoneId,
             input.date,
             "Retour d'adoption",
@@ -241,38 +486,38 @@ function registerHandlers(): void {
     mutate((service) => void service.createAdoptionDay(input)),
   );
   handle(IPC.getAdoptionDaySuggestions, async (_event, adoptionDayId: string) =>
-    new CatService(dataset).getAdoptionDaySuggestions(adoptionDayId),
+    new AnimalService(dataset).getAdoptionDaySuggestions(adoptionDayId),
   );
   handle(
-    IPC.addCatsToAdoptionDay,
+    IPC.addAnimalsToAdoptionDay,
     async (
       _event,
       input: {
         adoptionDayId: string;
-        catIds: string[];
+        animalIds: string[];
         overrideWarnings?: boolean;
         overrideReason?: string;
       },
     ) =>
       mutate(
         (service) =>
-          void service.addCatsToAdoptionDay(
+          void service.addAnimalsToAdoptionDay(
             input.adoptionDayId,
-            input.catIds,
+            input.animalIds,
             input.overrideWarnings,
             input.overrideReason,
           ),
       ),
   );
-  handle(IPC.withdrawCatFromAdoptionDay, async (_event, registrationId: string) =>
-    mutate((service) => void service.withdrawCatFromAdoptionDay(registrationId)),
+  handle(IPC.withdrawAnimalFromAdoptionDay, async (_event, registrationId: string) =>
+    mutate((service) => void service.withdrawAnimalFromAdoptionDay(registrationId)),
   );
   handle(
-    IPC.bookCatForAdoption,
+    IPC.bookAnimalForAdoption,
     async (_event, input: { registrationId: string; adopterId: string; bookedAt: string }) =>
       mutate(
         (service) =>
-          void service.bookCatForAdoption(input.registrationId, input.adopterId, input.bookedAt),
+          void service.bookAnimalForAdoption(input.registrationId, input.adopterId, input.bookedAt),
       ),
   );
   handle(
@@ -295,7 +540,7 @@ function registerHandlers(): void {
     async (
       _event,
       input: {
-        catId: string;
+        animalId: string;
         disease: string;
         declaredAt: string;
         lookbackDays: number;
@@ -303,8 +548,8 @@ function registerHandlers(): void {
       },
     ) => {
       const draft = structuredClone(dataset);
-      const result = new CatService(draft).declareSickness(
-        input.catId,
+      const result = new AnimalService(draft).declareSickness(
+        input.animalId,
         input.disease,
         input.declaredAt,
         input.lookbackDays,
@@ -323,7 +568,7 @@ function registerHandlers(): void {
       ),
   );
   handle(IPC.getHealthExposures, async (_event, healthAlertId: string) =>
-    new CatService(dataset).getHealthExposures(healthAlertId),
+    new AnimalService(dataset).getHealthExposures(healthAlertId),
   );
   handle(IPC.createSponsorship, async (_event, input: import("../shared/types").SponsorshipInput) =>
     mutate((service) => void service.createSponsorship(input)),
@@ -334,9 +579,11 @@ function registerHandlers(): void {
       mutate((service) => void service.createSponsorship(input, input.id)),
   );
   handle(
-    IPC.declareCatDeceased,
-    async (_event, input: { catId: string; date: string; notes?: string }) =>
-      mutate((service) => void service.declareCatDeceased(input.catId, input.date, input.notes)),
+    IPC.declareAnimalDeceased,
+    async (_event, input: { animalId: string; date: string; notes?: string }) =>
+      mutate(
+        (service) => void service.declareAnimalDeceased(input.animalId, input.date, input.notes),
+      ),
   );
   handle(IPC.createTask, async (_event, input: import("../shared/types").TaskInput) =>
     mutate((service) => void service.createTask(input)),
@@ -344,11 +591,13 @@ function registerHandlers(): void {
   handle(IPC.recordCare, async (_event, input: import("../shared/types").CareRecordInput) =>
     mutate((service) => void service.recordCare(input)),
   );
-  handle(IPC.recordCatHistory, async (_event, input: import("../shared/types").CatHistoryInput) =>
-    mutate((service) => void service.recordCatHistory(input)),
+  handle(
+    IPC.recordAnimalHistory,
+    async (_event, input: import("../shared/types").AnimalHistoryInput) =>
+      mutate((service) => void service.recordAnimalHistory(input)),
   );
-  handle(IPC.deleteCatEvent, async (_event, eventId: string) =>
-    mutate((service) => void service.deleteCatEvent(eventId)),
+  handle(IPC.deleteAnimalEvent, async (_event, eventId: string) =>
+    mutate((service) => void service.deleteAnimalEvent(eventId)),
   );
   handle(
     IPC.completeTask,
@@ -364,10 +613,89 @@ function registerHandlers(): void {
     if (result.canceled || !result.filePaths[0]) {
       return null;
     }
-    const opened = await openDataset(result.filePaths[0]);
+    try {
+      await openDataset(result.filePaths[0]);
+    } catch (error) {
+      if (error instanceof MigrationCancelledError) {
+        return null;
+      }
+      throw error;
+    }
     preferences.realDatasetDirectory = result.filePaths[0];
     await saveAppPreferences(preferencesPath, preferences);
-    return opened;
+    await generateDueEmails();
+    return snapshot();
+  });
+  handle(IPC.updateEmailTemplates, async (_event, templates: EmailTemplates) => {
+    if (
+      !templates ||
+      !Number.isInteger(templates.leadDays) ||
+      templates.leadDays < 0 ||
+      templates.leadDays > 90
+    ) {
+      throw new Error("Le délai de rappel doit être compris entre 0 et 90 jours.");
+    }
+    for (const key of ["sterilisation", "vaccination", "antiFlea", "deworming", "icad"] as const) {
+      const template = templates[key];
+      if (!template || typeof template.subject !== "string" || typeof template.body !== "string") {
+        throw new Error("Modèle d’e-mail invalide.");
+      }
+    }
+    preferences.emailTemplates = structuredClone(templates);
+    await saveAppPreferences(preferencesPath, preferences);
+    return snapshot();
+  });
+  handle(IPC.acknowledgeEmail, async (_event, id: string) => {
+    const emails = preferences.generatedEmailsByDataset[dataset.datasetId] ?? [];
+    const email = emails.find((candidate) => candidate.id === id);
+    if (email && !email.acknowledgedAt) {
+      email.acknowledgedAt = new Date().toISOString();
+      await saveAppPreferences(preferencesPath, preferences);
+    }
+    return snapshot();
+  });
+  handle(IPC.chooseEmailOutputDirectory, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  handle(IPC.setEmailOutputDirectory, async (_event, path: string) => {
+    if (typeof path !== "string") {
+      throw new Error("Dossier d’export invalide.");
+    }
+    preferences.emailOutputDirectory = path;
+    await saveAppPreferences(preferencesPath, preferences);
+    return snapshot();
+  });
+  handle(IPC.exportReadyEmails, async () => {
+    if (!preferences.emailOutputDirectory) {
+      throw new Error("Choisissez d’abord un dossier de destination.");
+    }
+    const emails = (preferences.generatedEmailsByDataset[dataset.datasetId] ?? []).filter(
+      (email) => !email.acknowledgedAt,
+    );
+    await mkdir(preferences.emailOutputDirectory, { recursive: true });
+    for (const email of emails) {
+      const safe = (value: string) => value.replace(/[\r\n]/g, " ");
+      const encodedSubject = `=?UTF-8?B?${Buffer.from(safe(email.subject), "utf8").toString("base64")}?=`;
+      const content = [
+        `To: ${safe(email.recipient)}`,
+        `Subject: ${encodedSubject}`,
+        "MIME-Version: 1.0",
+        'Content-Type: text/plain; charset="UTF-8"',
+        "Content-Transfer-Encoding: 8bit",
+        "",
+        email.body.replace(/\r?\n/g, "\r\n"),
+        "",
+      ].join("\r\n");
+      await writeFile(join(preferences.emailOutputDirectory, email.filename), content, "utf8");
+    }
+    return {
+      snapshot: snapshot(),
+      exportedCount: emails.length,
+      directory: preferences.emailOutputDirectory,
+    };
   });
   handle(IPC.chooseLegacyCsv, async () => {
     const result = await dialog.showOpenDialog({
@@ -405,6 +733,7 @@ function createWindow(): BrowserWindow {
     },
   });
   window.removeMenu();
+  mainWindow = window;
   window.loadFile(join(__dirname, "../dist/index.html"));
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -418,11 +747,45 @@ app.whenReady().then(async () => {
   demoDatasetDirectory = join(userDataDirectory, "demo-dataset");
   preferences = await loadAppPreferences(preferencesPath, join(userDataDirectory, "dataset"));
   showDemoWelcome = !preferences.demoWelcomeSeen;
+  try {
+    await activateMode(forcedDemoMode || preferences.demoMode);
+  } catch (error) {
+    if (!(error instanceof MigrationCancelledError)) {
+      throw error;
+    }
+    const choice = await dialog.showMessageBox({
+      type: "warning",
+      title: "Ouverture du registre annulée",
+      message: "Le registre n'a pas été modifié.",
+      detail:
+        "Vous pouvez essayer le mode démo, choisir un autre dossier ou quitter l'application.",
+      buttons: ["Essayer la démo", "Choisir un autre dossier", "Quitter"],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    });
+    if (choice.response === 0) {
+      await activateMode(true);
+      preferences.demoMode = true;
+    } else if (choice.response === 1) {
+      const selected = await dialog.showOpenDialog({
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (!selected.canceled && selected.filePaths[0]) {
+        await openDataset(selected.filePaths[0]);
+        preferences.realDatasetDirectory = selected.filePaths[0];
+        preferences.demoMode = false;
+        await saveAppPreferences(preferencesPath, preferences);
+      } else {
+        app.quit();
+        return;
+      }
+    } else {
+      app.quit();
+      return;
+    }
+  }
   await saveAppPreferences(preferencesPath, preferences);
-  await activateMode(
-    forcedDemoMode || preferences.demoMode,
-    forcedDemoMode && process.env.CAT_DISPENSER_DEMO_RESET === "1",
-  );
   registerHandlers();
   createWindow();
   app.on("activate", () => {

@@ -1,13 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "../shared/ipc";
-import type { CatAppApi } from "../shared/types";
+import type { AnimalAppApi } from "../shared/types";
 
-const api: CatAppApi = {
+const api: AnimalAppApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.bootstrap),
+  setEnabledSpecies: (species) => ipcRenderer.invoke(IPC.setEnabledSpecies, species),
   setDemoMode: (enabled) => ipcRenderer.invoke(IPC.setDemoMode, enabled),
   dismissDemoWelcome: () => ipcRenderer.invoke(IPC.dismissDemoWelcome),
-  createCat: (input) => ipcRenderer.invoke(IPC.createCat, input),
-  updateCat: (input) => ipcRenderer.invoke(IPC.updateCat, input),
+  createAnimal: (input) => ipcRenderer.invoke(IPC.createAnimal, input),
+  updateAnimal: (input) => ipcRenderer.invoke(IPC.updateAnimal, input),
   createFamily: (input) => ipcRenderer.invoke(IPC.createFamily, input),
   addFamilyHoliday: (input) => ipcRenderer.invoke(IPC.addFamilyHoliday, input),
   createAdopter: (input) => ipcRenderer.invoke(IPC.createAdopter, input),
@@ -25,10 +26,10 @@ const api: CatAppApi = {
   createAdoptionDay: (input) => ipcRenderer.invoke(IPC.createAdoptionDay, input),
   getAdoptionDaySuggestions: (adoptionDayId) =>
     ipcRenderer.invoke(IPC.getAdoptionDaySuggestions, adoptionDayId),
-  addCatsToAdoptionDay: (input) => ipcRenderer.invoke(IPC.addCatsToAdoptionDay, input),
-  withdrawCatFromAdoptionDay: (registrationId) =>
-    ipcRenderer.invoke(IPC.withdrawCatFromAdoptionDay, registrationId),
-  bookCatForAdoption: (input) => ipcRenderer.invoke(IPC.bookCatForAdoption, input),
+  addAnimalsToAdoptionDay: (input) => ipcRenderer.invoke(IPC.addAnimalsToAdoptionDay, input),
+  withdrawAnimalFromAdoptionDay: (registrationId) =>
+    ipcRenderer.invoke(IPC.withdrawAnimalFromAdoptionDay, registrationId),
+  bookAnimalForAdoption: (input) => ipcRenderer.invoke(IPC.bookAnimalForAdoption, input),
   confirmAdoptionBooking: (input) => ipcRenderer.invoke(IPC.confirmAdoptionBooking, input),
   createPartnerPlace: (input) => ipcRenderer.invoke(IPC.createPartnerPlace, input),
   deletePartnerPlace: (id) => ipcRenderer.invoke(IPC.deletePartnerPlace, id),
@@ -37,15 +38,20 @@ const api: CatAppApi = {
   getHealthExposures: (healthAlertId) => ipcRenderer.invoke(IPC.getHealthExposures, healthAlertId),
   createSponsorship: (input) => ipcRenderer.invoke(IPC.createSponsorship, input),
   updateSponsorship: (input) => ipcRenderer.invoke(IPC.updateSponsorship, input),
-  declareCatDeceased: (input) => ipcRenderer.invoke(IPC.declareCatDeceased, input),
+  declareAnimalDeceased: (input) => ipcRenderer.invoke(IPC.declareAnimalDeceased, input),
   createTask: (input) => ipcRenderer.invoke(IPC.createTask, input),
   recordCare: (input) => ipcRenderer.invoke(IPC.recordCare, input),
-  recordCatHistory: (input) => ipcRenderer.invoke(IPC.recordCatHistory, input),
-  deleteCatEvent: (eventId) => ipcRenderer.invoke(IPC.deleteCatEvent, eventId),
+  recordAnimalHistory: (input) => ipcRenderer.invoke(IPC.recordAnimalHistory, input),
+  deleteAnimalEvent: (eventId) => ipcRenderer.invoke(IPC.deleteAnimalEvent, eventId),
   completeTask: (input) => ipcRenderer.invoke(IPC.completeTask, input),
   chooseAndPreviewLegacyCsv: () => ipcRenderer.invoke(IPC.chooseLegacyCsv),
   commitLegacyImport: (preview) => ipcRenderer.invoke(IPC.commitLegacyImport, preview),
   chooseDatasetDirectory: () => ipcRenderer.invoke(IPC.chooseDataset),
+  updateEmailTemplates: (templates) => ipcRenderer.invoke(IPC.updateEmailTemplates, templates),
+  acknowledgeEmail: (id) => ipcRenderer.invoke(IPC.acknowledgeEmail, id),
+  chooseEmailOutputDirectory: () => ipcRenderer.invoke(IPC.chooseEmailOutputDirectory),
+  setEmailOutputDirectory: (path) => ipcRenderer.invoke(IPC.setEmailOutputDirectory, path),
+  exportReadyEmails: () => ipcRenderer.invoke(IPC.exportReadyEmails),
 };
 
 contextBridge.exposeInMainWorld("catApp", api);

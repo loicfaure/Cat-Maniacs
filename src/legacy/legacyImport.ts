@@ -1,6 +1,5 @@
-import { CatService } from "../application/catService";
-import { isValidIcad, normalizeIdentification } from "../domain/dataset";
-import { parseCsv } from "../infrastructure/csv";
+import { AnimalService } from "../application/animalService";
+import { parseCsv } from "../core/csv";
 import type {
   Dataset,
   ImportCommitResult,
@@ -8,7 +7,8 @@ import type {
   LegacyImportPreview,
   LegacyImportRow,
   Sex,
-} from "../shared/types";
+} from "../core/types";
+import { isValidIcad, normalizeIdentification } from "../domain/dataset";
 
 interface LegacyField {
   key: string;
@@ -65,14 +65,14 @@ export function previewLegacyCsv(source: string, sourcePath: string): LegacyImpo
   }
   const headers = rawHeaders.map((header) => header.replace(/\s+/g, " ").trim());
   const normalizedIndex = new Map(headers.map((header, index) => [normalizeHeader(header), index]));
-  const indexes = Object.fromEntries(
+  const indexes = new Map(
     FIELDS.map((field) => [
       field.key,
       field.aliases
         .map((alias) => normalizedIndex.get(normalizeHeader(alias)))
         .find((index) => index !== undefined),
     ]),
-  ) as Record<string, number | undefined>;
+  );
 
   const rows = rawRows
     .map((row, sourceIndex) => buildRow(row, sourceIndex + 2, indexes))
@@ -92,14 +92,13 @@ export function previewLegacyCsv(source: string, sourcePath: string): LegacyImpo
 function buildRow(
   row: string[],
   rowNumber: number,
-  indexes: Record<string, number | undefined>,
+  indexes: ReadonlyMap<string, number | undefined>,
 ): LegacyImportRow {
-  const values = Object.fromEntries(
-    FIELDS.map((field) => [
-      field.key,
-      normalizeCell(indexes[field.key] === undefined ? "" : row[indexes[field.key]!]),
-    ]),
-  );
+  const values: Record<string, string> = {};
+  for (const field of FIELDS) {
+    const index = indexes.get(field.key);
+    values[field.key] = normalizeCell(index === undefined ? "" : (row[index] ?? ""));
+  }
   const issues: ImportIssue[] = [];
   const issue = (field: string, severity: "error" | "warning", message: string) =>
     issues.push({ rowNumber, field, severity, message });
@@ -146,7 +145,11 @@ function buildRow(
         Date.UTC(birth.getUTCFullYear() + 1, birth.getUTCMonth(), birth.getUTCDate()),
       );
       if (values.ageGroup.toLowerCase() === "chaton" && adoption >= oneYearLater) {
-        issue("ageGroup", "warning", "Catégorie Chaton incohérente avec un âge d'au moins un an.");
+        issue(
+          "ageGroup",
+          "warning",
+          "Catégorie Chaton incohérente avec un âge d'au moins un an.",
+        );
       }
     }
   }
@@ -178,7 +181,7 @@ export function commitLegacyPreview(
   dataset: Dataset,
   preview: LegacyImportPreview,
 ): ImportCommitResult {
-  const service = new CatService(dataset);
+  const service = new AnimalService(dataset);
   const importableRows = preview.rows.filter((row) => row.importable);
   const idCounts = new Map<string, number>();
   for (const row of importableRows) {
@@ -187,7 +190,7 @@ export function commitLegacyPreview(
       idCounts.set(number, (idCounts.get(number) ?? 0) + 1);
     }
   }
-  let importedCats = 0;
+  let importedAnimals = 0;
   let importedFamilies = 0;
   let importedAdoptions = 0;
 
@@ -198,8 +201,10 @@ export function commitLegacyPreview(
       legacyId && isValidIcad(legacyId) && idCounts.get(legacyId) === 1 ? legacyId : "";
     const legacyNote =
       legacyId && !canonicalId ? `Numéro historique à vérifier : ${legacyId}. ` : "";
-    const beforeCatIds = new Set(dataset.cats.map((cat) => cat.id));
-    service.createCat({
+    const beforeAnimalIds = new Set(dataset.animals.map((cat) => cat.id));
+    service.createAnimal({
+      speciesId: "cat",
+      identificationScheme: canonicalId ? "ICAD" : legacyId ? "OTHER" : "NONE",
       name: values.catName,
       identificationNumber: canonicalId,
       birthDate: toIsoDate(values.birthDate),
@@ -210,8 +215,8 @@ export function commitLegacyPreview(
       notes:
         `${legacyNote}Importé de ${preview.sourcePath}, ligne ${row.sourceRowNumber}. ${values.comments}`.trim(),
     });
-    const cat = dataset.cats.find((candidate) => !beforeCatIds.has(candidate.id))!;
-    importedCats += 1;
+    const cat = dataset.animals.find((candidate) => !beforeAnimalIds.has(candidate.id))!;
+    importedAnimals += 1;
 
     let adopterId = "";
     if (values.firstName || values.lastName) {
@@ -241,7 +246,7 @@ export function commitLegacyPreview(
     const adoptionDate = toIsoDate(values.adoptionDate);
     if (adopterId && adoptionDate) {
       service.createAdoption({
-        catIds: [cat.id],
+        animalIds: [cat.id],
         adopterId,
         adoptionDate,
         partner: values.store,
@@ -253,7 +258,7 @@ export function commitLegacyPreview(
       const timestamp = new Date().toISOString();
       dataset.tasks.push({
         id: crypto.randomUUID(),
-        catId: cat.id,
+        animalId: cat.id,
         type: values.remainingService,
         status: "OPEN",
         dueDate: "",
@@ -265,10 +270,10 @@ export function commitLegacyPreview(
     }
     if (values.followUpDate || values.followUpResponse || values.lastNewsReceived) {
       const timestamp = new Date().toISOString();
-      const adoption = dataset.adoptions.find((candidate) => candidate.catId === cat.id);
+      const adoption = dataset.adoptions.find((candidate) => candidate.animalId === cat.id);
       dataset.followUps.push({
         id: crypto.randomUUID(),
-        catId: cat.id,
+        animalId: cat.id,
         adoptionId: adoption?.id ?? "",
         requestedAt: toIsoDate(values.followUpDate),
         response: values.followUpResponse,
@@ -281,7 +286,7 @@ export function commitLegacyPreview(
 
   dataset.updatedAt = new Date().toISOString();
   return {
-    importedCats,
+    importedAnimals,
     importedFamilies,
     importedAdoptions,
     skippedRows: preview.rows.length - importableRows.length,
@@ -335,7 +340,7 @@ function normalizeHeader(value: string): string {
     .toLowerCase();
 }
 
-function normalizeCell(value: unknown): string {
+function normalizeCell(value: string): string {
   return String(value ?? "")
     .replace(/\r?\n/g, " ")
     .replace(/\s+/g, " ")

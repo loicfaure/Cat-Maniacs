@@ -1,30 +1,63 @@
 import {
   type ChangeEvent,
+  type CSSProperties,
   type FormEvent,
   type PointerEvent,
-  type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
-import { profileForBirthDate } from "../domain/catAge";
+import { registeredSpecies } from "../domain/species/registry";
 import type {
   Adoption,
   AdoptionDaySuggestionGroup,
   AdoptionEligibility,
+  AnimalEventType,
+  AnimalProfile,
+  AnimalStatus,
   AppSnapshot,
-  CatProfile,
-  CatStatus,
+  EmailTemplates,
   HealthExposure,
   LegacyImportPreview,
+  Sex,
+  SpeciesData,
+  SpeciesId,
   SterilizationStatus,
 } from "../shared/types";
-import { searchAdoptionCats } from "./catSearch";
-import { buildCatTable, type CatSortField, type SortDirection } from "./catTable";
+import { searchAdoptionAnimals } from "./animalSearch";
+import { type AnimalSortField, buildAnimalTable, type SortDirection } from "./animalTable";
+import {
+  AdoptabilityFields,
+  SpeciesDetailsFields,
+  SpeciesFilter,
+  SpeciesSelector,
+  SpeciesTableCell,
+  SpeciesTableHeader,
+} from "./speciesPresentation";
+
+import {
+  Badge,
+  Button,
+  Callout,
+  Checkbox,
+  DateInput,
+  Empty,
+  Field,
+  FieldGroup,
+  FilterBar,
+  FormActions,
+  type Notice,
+  Notification,
+  PageHeader,
+  Panel,
+  RecordLink,
+  SearchField,
+} from "./ui";
 
 type Page =
   | "dashboard"
-  | "cats"
+  | "animals"
   | "families"
   | "adoptions"
   | "adoptionDays"
@@ -32,8 +65,9 @@ type Page =
   | "import"
   | "care"
   | "email"
-  | "sponsorships";
-type Notice = { kind: "success" | "error"; text: string };
+  | "sponsorships"
+  | "settings";
+
 interface PageProps {
   snapshot: AppSnapshot;
   run: (operation: () => Promise<AppSnapshot>, message: string) => Promise<void>;
@@ -41,7 +75,7 @@ interface PageProps {
 
 const PAGE_META: Array<{ id: Page; label: string; icon: string }> = [
   { id: "dashboard", label: "Vue d'ensemble", icon: "⌂" },
-  { id: "cats", label: "Chats", icon: "◉" },
+  { id: "animals", label: "Animaux", icon: "◉" },
   { id: "refuge", label: "Le refuge", icon: "⌂" },
   { id: "families", label: "Familles d'accueil", icon: "⌁" },
   { id: "adoptions", label: "Adoptions", icon: "♡" },
@@ -50,23 +84,53 @@ const PAGE_META: Array<{ id: Page; label: string; icon: string }> = [
   { id: "care", label: "Rappels", icon: "◷" },
   { id: "email", label: "E-mails", icon: "✉" },
   { id: "import", label: "Importer", icon: "⇥" },
+  { id: "settings", label: "Paramètres", icon: "⚙" },
 ];
 
-const STATUS_LABEL: Record<CatStatus, string> = {
+const STATUS_LABEL: Record<AnimalStatus, string> = {
   FOSTERED: "En accueil",
   AT_REFUGE: "Au refuge",
   ADOPTED: "Adopté",
   LOST: "Perdu",
   DECEASED: "Décédé",
 };
-const PROFILE_LABEL: Record<CatProfile, string> = {
-  BOTTLE_KITTEN: "Chaton à biberonner",
-  KITTEN: "Chaton",
-  ADULT: "Adulte",
-  SENIOR: "Senior",
-  SPECIAL_NEEDS: "Besoins particuliers",
-};
-const ALL_PROFILES = Object.keys(PROFILE_LABEL) as CatProfile[];
+function profileLabel(speciesId: SpeciesId, profile: AnimalProfile): string {
+  return (
+    registeredSpecies
+      .find((species) => species.id === speciesId)
+      ?.profiles.find((candidate) => candidate.id === profile)?.label ?? profile
+  );
+}
+const SEX_OPTIONS: readonly Sex[] = ["F", "M", "UNKNOWN"];
+const STERILIZATION_OPTIONS: readonly SterilizationStatus[] = ["DONE", "TODO", "UNKNOWN"];
+const STERILIZATION_FILTERS: readonly (SterilizationStatus | "ALL")[] = [
+  "ALL",
+  ...STERILIZATION_OPTIONS,
+];
+const STATUS_OPTIONS: readonly (AnimalStatus | "ALL")[] = [
+  "ALL",
+  "FOSTERED",
+  "AT_REFUGE",
+  "ADOPTED",
+  "LOST",
+  "DECEASED",
+];
+const SORT_OPTIONS: readonly AnimalSortField[] = ["name", "birthDate", "intakeDate", "updatedAt"];
+const ADOPTION_SORT_MODES: readonly ("date" | "animal")[] = ["date", "animal"];
+
+function optionValue<T extends string>(value: string, options: readonly T[], fallback: T): T {
+  return options.find((option) => option === value) ?? fallback;
+}
+
+function formOption<T extends string>(
+  data: FormData,
+  key: string,
+  options: readonly T[],
+  fallback: T,
+): T {
+  const value = data.get(key);
+  return typeof value === "string" ? optionValue(value, options, fallback) : fallback;
+}
 
 function localToday(): string {
   const date = new Date();
@@ -76,93 +140,36 @@ function formatDate(value: string): string {
   if (!value) {
     return "—";
   }
+  if (value.includes("T")) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? value
+      : new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(date);
+  }
   const [year, month, day] = value.split("-");
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
-function dateFromFrench(value: string): string {
-  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value.trim());
-  if (!match) {
-    return "";
-  }
-  const [, day, month, year] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day));
-  if (
-    date.getFullYear() !== Number(year) ||
-    date.getMonth() !== Number(month) - 1 ||
-    date.getDate() !== Number(day)
-  ) {
-    return "";
-  }
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
-function FrenchDateInput({
-  name,
-  value,
-  defaultValue,
-  required,
-  onChange,
-}: {
-  name: string;
-  value?: string;
-  defaultValue?: string;
-  required?: boolean;
-  onChange?: (iso: string) => void;
-}) {
-  const controlled = value !== undefined;
-  const initialValue = controlled ? value : (defaultValue ?? "");
-  const [text, setText] = useState(
-    formatDate(initialValue) === "—" ? "" : formatDate(initialValue),
-  );
-  const iso = dateFromFrench(text);
-  useEffect(() => {
-    if (controlled) {
-      setText(formatDate(value) === "—" ? "" : formatDate(value));
-    }
-  }, [controlled, value]);
-  return (
-    <>
-      <input
-        className="french-date-input"
-        type="text"
-        inputMode="numeric"
-        placeholder="JJ/MM/AAAA"
-        aria-label="Date au format jour/mois/année"
-        value={text}
-        required={required}
-        onChange={(event) => {
-          const next = event.target.value;
-          const parsed = dateFromFrench(next);
-          event.target.setCustomValidity(
-            next && !parsed ? "Saisissez une date valide au format JJ/MM/AAAA." : "",
-          );
-          setText(next);
-          onChange?.(parsed);
-        }}
-        onBlur={() => {
-          if (iso) {
-            setText(formatDate(iso));
-          }
-        }}
-      />
-      <input type="hidden" name={name} value={iso} />
-    </>
-  );
-}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, "")
     : String(error);
 }
-function catWarnings(cat: AppSnapshot["cats"][number]): string[] {
+function animalWarnings(animal: AppSnapshot["animals"][number]): string[] {
   const warnings: string[] = [];
-  if (cat.sterilizationStatus !== "DONE") {
+  if (
+    registeredSpecies
+      .find((species) => species.id === animal.speciesId)
+      ?.careCategories.includes("STERILISATION") &&
+    animal.sterilizationStatus !== "DONE"
+  ) {
     warnings.push("Stérilisation non confirmée");
   }
-  if (cat.healthStatus === "SICK") {
+  if (animal.healthStatus === "SICK") {
     warnings.push("Malade / surveillance sanitaire");
   }
-  if (cat.adoptionEligibility !== "ELIGIBLE") {
-    warnings.push(cat.adoptionBlockedReason || "Adoption non autorisée");
+  if (animal.adoptionEligibility !== "ELIGIBLE") {
+    warnings.push(animal.adoptionBlockedReason || "Adoption non autorisée");
   }
   return warnings;
 }
@@ -193,9 +200,10 @@ export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
   const [page, setPage] = useState<Page>("dashboard");
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
-  const [emailCatId, setEmailCatId] = useState("");
-  const [healthCatId, setHealthCatId] = useState<string | null>(null);
+  const dismissNotice = useCallback(() => setNotice(null), []);
+  const [selectedAnimalId, setSelectedAnimalId] = useState<string | null>(null);
+  const [emailAnimalId, setEmailAnimalId] = useState("");
+  const [healthAnimalId, setHealthAnimalId] = useState<string | null>(null);
   const [switchingDemo, setSwitchingDemo] = useState(false);
   useEffect(() => {
     window.catApp
@@ -216,9 +224,16 @@ export function App() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    const showCat = (event: Event) => setSelectedCatId((event as CustomEvent<string>).detail);
+    const showAnimal = (event: Event) => {
+      if (event instanceof CustomEvent && typeof event.detail === "string") {
+        setSelectedAnimalId(event.detail);
+      }
+    };
     const showFamily = (event: Event) => {
-      const familyId = (event as CustomEvent<string>).detail;
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") {
+        return;
+      }
+      const familyId = event.detail;
       setPage("families");
       window.setTimeout(
         () =>
@@ -228,37 +243,58 @@ export function App() {
         50,
       );
     };
-    window.addEventListener("cat:open", showCat);
+    window.addEventListener("cat:open", showAnimal);
     window.addEventListener("family:open", showFamily);
+    const showRefuge = (event: Event) => {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") {
+        return;
+      }
+      const zoneId = event.detail;
+      setSelectedAnimalId(null);
+      setHealthAnimalId(null);
+      setPage("refuge");
+      window.setTimeout(
+        () =>
+          document
+            .getElementById(`refuge-zone-${zoneId}`)
+            ?.scrollIntoView?.({ behavior: "smooth", block: "center" }),
+        50,
+      );
+    };
+    window.addEventListener("refuge:open", showRefuge);
     return () => {
-      window.removeEventListener("cat:open", showCat);
+      window.removeEventListener("cat:open", showAnimal);
       window.removeEventListener("family:open", showFamily);
+      window.removeEventListener("refuge:open", showRefuge);
     };
   }, []);
   const run = async (operation: () => Promise<AppSnapshot>, message: string) => {
     try {
       setSnapshot(await operation());
       setNotice({ kind: "success", text: message });
-      window.setTimeout(() => setNotice(null), 3500);
     } catch (error) {
       setNotice({ kind: "error", text: errorMessage(error) });
     }
   };
-  const switchDemoMode = async () => {
+  const switchDemoMode = async (enabled = !snapshot?.demoMode) => {
     if (!snapshot) {
       return;
     }
     try {
       setSwitchingDemo(true);
-      const enabled = !snapshot.demoMode;
+      const resetting = snapshot.demoMode && enabled;
       setSnapshot(await window.catApp.setDemoMode(enabled));
-      setSelectedCatId(null);
+      setSelectedAnimalId(null);
+      setHealthAnimalId(null);
+      setEmailAnimalId("");
       setPage("dashboard");
       setNotice({
         kind: "success",
-        text: enabled
-          ? "Mode démo activé. Vos données réelles restent isolées."
-          : "Mode démo quitté. Votre registre réel est ouvert.",
+        text: resetting
+          ? "Démonstration réinitialisée avec les dates d'aujourd'hui."
+          : enabled
+            ? "Mode démo activé avec les dates d'aujourd'hui. Vos données réelles restent isolées."
+            : "Mode démo quitté. Votre registre réel est ouvert.",
       });
     } catch (error) {
       setNotice({ kind: "error", text: errorMessage(error) });
@@ -281,19 +317,25 @@ export function App() {
       </div>
     );
   }
-  const pageTitle = PAGE_META.find((item) => item.id === page)?.label ?? "";
+  const pageTitle =
+    page === "animals" && snapshot.settings.enabledSpecies.length === 1
+      ? (registeredSpecies.find((species) => species.id === snapshot.settings.enabledSpecies[0])
+          ?.label.plural ?? "Animaux")
+      : (PAGE_META.find((item) => item.id === page)?.label ?? "");
   return (
-    <div className="shell">
+    <div
+      className={`shell ${snapshot.settings.enabledSpecies.length > 1 ? "multi-species" : "single-species"}`}
+    >
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">C</div>
           <div>
             <strong>Cha'Mania</strong>
-            <span>Registre félin</span>
+            <span>Registre animalier</span>
           </div>
         </div>
         {snapshot.demoMode && (
-          <div className="demo-badge">Mode démo · {snapshot.cats.length} chats</div>
+          <div className="demo-badge">Mode démo · {snapshot.animals.length} animaux</div>
         )}
         <nav>
           {PAGE_META.map((item) => (
@@ -301,13 +343,25 @@ export function App() {
               key={item.id}
               className={page === item.id ? "active" : ""}
               onClick={() => {
-                setHealthCatId(null);
+                setHealthAnimalId(null);
                 setPage(item.id);
               }}
             >
               <span className="nav-icon">{item.icon}</span>
-              {item.label}
-              {item.id === "cats" && <small>{snapshot.cats.length}</small>}
+              {item.id === "animals" && snapshot.settings.enabledSpecies.length === 1
+                ? registeredSpecies.find(
+                    (species) => species.id === snapshot.settings.enabledSpecies[0],
+                  )?.label.plural
+                : item.label}
+              {item.id === "animals" && <small>{snapshot.animals.length}</small>}
+              {item.id === "email" &&
+                snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length > 0 && (
+                  <small
+                    aria-label={`${snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length} e-mails à envoyer`}
+                  >
+                    {snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length}
+                  </small>
+                )}
             </button>
           ))}
         </nav>
@@ -326,6 +380,15 @@ export function App() {
           >
             {snapshot.demoMode ? "Dossier de démonstration isolé" : "Changer de dossier"}
           </button>
+          {snapshot.demoMode && (
+            <button
+              disabled={switchingDemo}
+              title="Remplacer les modifications de la démo par de nouvelles données datées d'aujourd'hui"
+              onClick={() => void switchDemoMode(true)}
+            >
+              Réinitialiser la démo
+            </button>
+          )}
         </div>
         <button
           className={`demo-switch ${snapshot.demoMode ? "active" : ""}`}
@@ -351,15 +414,10 @@ export function App() {
             {snapshot.demoMode ? "Données de démonstration isolées" : "Sauvegarde locale active"}
           </div>
         </header>
-        {notice && (
-          <div className={`notice ${notice.kind}`}>
-            {notice.text}
-            <button onClick={() => setNotice(null)}>×</button>
-          </div>
-        )}
+        {notice && <Notification notice={notice} onDismiss={dismissNotice} />}
         <div className="content">
           {page === "dashboard" && <Dashboard snapshot={snapshot} navigate={setPage} run={run} />}
-          {page === "cats" && <CatsPage snapshot={snapshot} run={run} />}
+          {page === "animals" && <AnimalsPage snapshot={snapshot} run={run} />}
           {page === "families" && <FamiliesPage snapshot={snapshot} run={run} />}
           {page === "adoptions" && <AdoptionsPage snapshot={snapshot} run={run} />}
           {page === "adoptionDays" && (
@@ -370,20 +428,39 @@ export function App() {
             <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />
           )}
           {page === "care" &&
-            (healthCatId ? (
+            (healthAnimalId ? (
               <HealthIssuePage
-                catId={healthCatId}
+                animalId={healthAnimalId}
                 snapshot={snapshot}
                 run={run}
                 setSnapshot={setSnapshot}
                 setNotice={setNotice}
-                back={() => setHealthCatId(null)}
+                back={() => setHealthAnimalId(null)}
               />
             ) : (
               <CarePage snapshot={snapshot} run={run} />
             ))}
-          {page === "email" && <EmailPage snapshot={snapshot} initialCatId={emailCatId} />}
+          {page === "email" && (
+            <EmailPage
+              snapshot={snapshot}
+              initialAnimalId={emailAnimalId}
+              setSnapshot={setSnapshot}
+              setNotice={setNotice}
+            />
+          )}
           {page === "sponsorships" && <SponsorshipsPage snapshot={snapshot} run={run} />}
+          {page === "settings" && (
+            <SettingsPage
+              snapshot={snapshot}
+              setSnapshot={(next) => {
+                setSnapshot(next);
+                setSelectedAnimalId(null);
+                setHealthAnimalId(null);
+                setEmailAnimalId("");
+              }}
+              setNotice={setNotice}
+            />
+          )}
         </div>
       </main>
       {snapshot.showDemoWelcome && (
@@ -398,29 +475,32 @@ export function App() {
             <span className="eyebrow">Première visite</span>
             <h2 id="demo-welcome-title">Bienvenue dans le mode démo</h2>
             <p>
-              Explorez l'application avec 64 chats et des données entièrement fictives. Votre vrai
+              Explorez l'application avec 64 animaux et des données entièrement fictives. Votre vrai
               registre reste séparé et ne sera jamais modifié pendant la démonstration.
             </p>
             <ul>
               <li>Testez les accueils, adoptions et journées d'adoption.</li>
               <li>Les changements restent dans le dossier de démonstration.</li>
+              <li>
+                Les données sont recréées à chaque ouverture du mode démo avec les dates du jour.
+              </li>
               <li>Le mode démo restera actif entre les lancements.</li>
             </ul>
             <div className="demo-welcome-actions">
-              <button
-                className="button primary"
+              <Button
+                variant="primary"
                 disabled={switchingDemo}
                 onClick={() => void dismissDemoWelcome()}
               >
                 Explorer la démonstration
-              </button>
-              <button
-                className="button secondary"
+              </Button>
+              <Button
+                variant="secondary"
                 disabled={switchingDemo}
                 onClick={() => void switchDemoMode()}
               >
                 Utiliser mon registre
-              </button>
+              </Button>
             </div>
             <small>
               Vous pourrez changer de mode à tout moment avec le bouton en bas à gauche.
@@ -428,21 +508,21 @@ export function App() {
           </section>
         </div>
       )}
-      {selectedCatId && (
-        <CatDetail
-          key={selectedCatId}
-          catId={selectedCatId}
+      {selectedAnimalId && (
+        <AnimalDetail
+          key={selectedAnimalId}
+          animalId={selectedAnimalId}
           snapshot={snapshot}
-          close={() => setSelectedCatId(null)}
+          close={() => setSelectedAnimalId(null)}
           goHealth={() => {
-            setHealthCatId(selectedCatId);
-            setSelectedCatId(null);
+            setHealthAnimalId(selectedAnimalId);
+            setSelectedAnimalId(null);
             setPage("care");
           }}
           run={run}
           setSnapshot={setSnapshot}
           setNotice={setNotice}
-          setEmailCatId={setEmailCatId}
+          setEmailAnimalId={setEmailAnimalId}
           setPage={setPage}
         />
       )}
@@ -459,32 +539,32 @@ function Dashboard({
   navigate: (page: Page) => void;
   run: PageProps["run"];
 }) {
-  const count = (status: CatStatus) =>
-    snapshot.catViews.filter((cat) => cat.status === status).length;
-  const latestEvents = [...snapshot.catEvents]
+  const count = (status: AnimalStatus) =>
+    snapshot.animalViews.filter((cat) => cat.status === status).length;
+  const latestEvents = [...snapshot.animalEvents]
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 6);
   const familyCapacity = snapshot.families
     .map((family) => ({
       family,
-      cats: snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id),
+      animals: snapshot.animalViews.filter((cat) => cat.currentFamilyId === family.id),
       remaining: Math.max(
         0,
         family.maxCapacity -
-          snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id).length,
+          snapshot.animalViews.filter((cat) => cat.currentFamilyId === family.id).length,
       ),
     }))
     .filter((group) => group.remaining > 0)
     .sort((a, b) => b.remaining - a.remaining);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const openAlerts = snapshot.healthAlerts.filter((alert) => alert.status === "OPEN");
-  const associationCatIds = new Set(
-    snapshot.catViews
+  const associationAnimalIds = new Set(
+    snapshot.animalViews
       .filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status))
       .map((cat) => cat.id),
   );
   const upcomingCare = snapshot.tasks
-    .filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId))
+    .filter((task) => task.status === "OPEN" && associationAnimalIds.has(task.animalId))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   return (
     <div className="page-stack">
@@ -494,22 +574,22 @@ function Dashboard({
           <h2>Chaque parcours, au bon endroit.</h2>
         </div>
         <div className="hero-actions">
-          <button className="button light" onClick={() => navigate("cats")}>
-            + Enregistrer un chat
-          </button>
-          <button className="button ghost-light" onClick={() => navigate("families")}>
+          <Button variant="light" onClick={() => navigate("animals")}>
+            + Enregistrer un animal
+          </Button>
+          <Button variant="ghost-light" onClick={() => navigate("families")}>
             + Ajouter une famille
-          </button>
-          <button className="button ghost-light" onClick={() => navigate("adoptions")}>
+          </Button>
+          <Button variant="ghost-light" onClick={() => navigate("adoptions")}>
             Préparer une adoption
-          </button>
-          <button className="button ghost-light" onClick={() => navigate("adoptionDays")}>
+          </Button>
+          <Button variant="ghost-light" onClick={() => navigate("adoptionDays")}>
             Préparer une journée
-          </button>
+          </Button>
         </div>
       </section>
       <section className="metrics">
-        <Metric label="Chats enregistrés" value={snapshot.cats.length} tone="ink" />
+        <Metric label="Animaux enregistrés" value={snapshot.animals.length} tone="ink" />
         <Metric label="En famille" value={count("FOSTERED")} tone="amber" />
         <Metric label="Au refuge" value={count("AT_REFUGE")} tone="sage" />
         <Metric label="Adoptés" value={count("ADOPTED")} tone="rose" />
@@ -517,13 +597,13 @@ function Dashboard({
       <Panel
         title="Places restantes"
         action={
-          <button className="text-button" onClick={() => navigate("families")}>
+          <Button variant="text" onClick={() => navigate("families")}>
             Gérer les accueils →
-          </button>
+          </Button>
         }
       >
         <div className="location-grid">
-          {familyCapacity.slice(0, 6).map(({ family, cats, remaining }) => (
+          {familyCapacity.slice(0, 6).map(({ family, animals, remaining }) => (
             <article className="location-card" key={family.id}>
               <div>
                 <FamilyLink family={family} />
@@ -532,7 +612,7 @@ function Dashboard({
                 </span>
               </div>
               <p>
-                {cats.length}/{family.maxCapacity} occupées
+                {animals.length}/{family.maxCapacity} occupées
               </p>
             </article>
           ))}
@@ -543,9 +623,9 @@ function Dashboard({
         <Panel
           title="Rappels à venir"
           action={
-            <button className="text-button" onClick={() => navigate("care")}>
+            <Button variant="text" onClick={() => navigate("care")}>
               Voir les rappels →
-            </button>
+            </Button>
           }
         >
           <div className="timeline">
@@ -553,7 +633,7 @@ function Dashboard({
               <div className="timeline-row" key={task.id}>
                 <span className="timeline-dot" />
                 <div>
-                  <CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!} />
+                  <AnimalIdentity cat={snapshot.animals.find((cat) => cat.id === task.animalId)!} />
                   <span>
                     {careTypeLabel(task.type)}
                     {task.notes ? ` · ${task.notes}` : ""}
@@ -569,12 +649,12 @@ function Dashboard({
           {latestEvents.length ? (
             <div className="timeline">
               {latestEvents.map((event) => {
-                const cat = snapshot.cats.find((candidate) => candidate.id === event.catId);
+                const cat = snapshot.animals.find((candidate) => candidate.id === event.animalId);
                 return (
                   <div className="timeline-row" key={event.id}>
                     <span className="timeline-dot" />
                     <div>
-                      {cat ? <CatIdentity cat={cat} /> : <strong>Chat inconnu</strong>}
+                      {cat ? <AnimalIdentity cat={cat} /> : <strong>Animal inconnu</strong>}
                       <span>
                         {eventLabel(event.type, event.label)}
                         {event.notes ? ` · ${event.notes}` : ""}
@@ -592,9 +672,9 @@ function Dashboard({
         <Panel
           title="Alertes"
           action={
-            <button className="text-button" onClick={() => setAlertsOpen(!alertsOpen)}>
+            <Button variant="text" onClick={() => setAlertsOpen(!alertsOpen)}>
               {alertsOpen ? "Réduire" : "Ouvrir le menu →"}
-            </button>
+            </Button>
           }
         >
           <button className="alert-summary" onClick={() => setAlertsOpen(!alertsOpen)}>
@@ -604,15 +684,16 @@ function Dashboard({
           {alertsOpen && (
             <div className="alert-menu">
               {openAlerts.map((alert) => {
-                const cat = snapshot.cats.find((candidate) => candidate.id === alert.catId)!;
+                const cat = snapshot.animals.find((candidate) => candidate.id === alert.animalId)!;
                 return (
                   <article key={alert.id}>
-                    <CatIdentity cat={cat} />
+                    <AnimalIdentity cat={cat} />
                     <span>
                       {alert.disease} · depuis le {formatDate(alert.declaredAt)}
                     </span>
-                    <button
-                      className="button tiny"
+                    <Button
+                      variant="secondary"
+                      size="small"
                       onClick={() =>
                         void run(
                           () =>
@@ -625,7 +706,7 @@ function Dashboard({
                       }
                     >
                       Terminer l'alerte
-                    </button>
+                    </Button>
                   </article>
                 );
               })}
@@ -639,30 +720,31 @@ function Dashboard({
 }
 
 function CarePage({ snapshot, run }: PageProps) {
-  const associationCatIds = new Set(
-    snapshot.catViews
+  const associationAnimalIds = new Set(
+    snapshot.animalViews
       .filter((cat) => ["FOSTERED", "AT_REFUGE"].includes(cat.status))
       .map((cat) => cat.id),
   );
   const tasks = snapshot.tasks
-    .filter((task) => task.status === "OPEN" && associationCatIds.has(task.catId))
+    .filter((task) => task.status === "OPEN" && associationAnimalIds.has(task.animalId))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const overdue = tasks.filter((task) => task.dueDate <= localToday()).length;
   return (
     <div className="page-stack">
-      <div className="section-heading">
-        <p>Les prochaines actions à faire pour les chats.</p>
+      <PageHeader>
+        <p>Les prochaines actions à faire pour les animaux.</p>
         <span className="care-count">
           {tasks.length} rappel(s) · {overdue} à faire ou en retard
         </span>
-      </div>
+      </PageHeader>
       <Panel title={`Rappels à faire · ${tasks.length}`}>
         <div className="table-wrap">
           <table className="adoption-table care-table">
             <thead>
               <tr>
                 <th>Échéance</th>
-                <th>Chat</th>
+                <th>Animal</th>
+                <SpeciesTableHeader enabledSpecies={snapshot.settings.enabledSpecies} />
                 <th>Rappel</th>
                 <th>Détail</th>
                 <th></th>
@@ -674,18 +756,26 @@ function CarePage({ snapshot, run }: PageProps) {
                 return (
                   <tr key={task.id}>
                     <td>
-                      <span className={`care-status ${due ? "overdue" : "open"}`}>
+                      <Badge className={`care-status ${due ? "overdue" : "open"}`}>
                         {due
                           ? task.dueDate < localToday()
                             ? "En retard"
                             : "À faire aujourd’hui"
                           : "À venir"}
-                      </span>
+                      </Badge>
                       <span className="reminder-date">{formatDate(task.dueDate)}</span>
                     </td>
                     <td>
-                      <CatIdentity cat={snapshot.cats.find((cat) => cat.id === task.catId)!} />
+                      <AnimalIdentity
+                        cat={snapshot.animals.find((cat) => cat.id === task.animalId)!}
+                      />
                     </td>
+                    <SpeciesTableCell
+                      enabledSpecies={snapshot.settings.enabledSpecies}
+                      speciesId={
+                        snapshot.animals.find((animal) => animal.id === task.animalId)?.speciesId
+                      }
+                    />
                     <td>
                       <strong>{careTypeLabel(task.type)}</strong>
                     </td>
@@ -729,55 +819,83 @@ function CareTaskAction({
   };
   if (!editing) {
     return (
-      <button className="button tiny care-done-button" onClick={() => setEditing(true)}>
+      <Button
+        variant="secondary"
+        size="small"
+        className="care-done-button"
+        onClick={() => setEditing(true)}
+      >
         Enregistrer le soin
-      </button>
+      </Button>
     );
   }
   return (
-    <form className="care-complete-form" onSubmit={submit}>
-      <label>
-        Fait le
-        <FrenchDateInput name="completedAt" defaultValue={localToday()} required />
-      </label>
-      <label>
-        Prochaine date
-        <FrenchDateInput name="nextDueDate" />
-      </label>
-      <button className="button tiny care-done-button">Valider</button>
-      <button type="button" className="text-button" onClick={() => setEditing(false)}>
+    <form className="care-complete-form" data-density="compact" onSubmit={submit}>
+      <Field label={<>Fait le</>}>
+        <DateInput name="completedAt" defaultValue={localToday()} required />
+      </Field>
+      <Field label={<>Prochaine date</>}>
+        <DateInput name="nextDueDate" />
+      </Field>
+      <Button variant="secondary" size="small" className="care-done-button">
+        Valider
+      </Button>
+      <Button type="button" variant="text" onClick={() => setEditing(false)}>
         Annuler
-      </button>
+      </Button>
     </form>
   );
 }
 
-function EmailPage({ snapshot, initialCatId }: { snapshot: AppSnapshot; initialCatId: string }) {
-  const [kind, setKind] = useState(initialCatId ? "sponsorNews" : "sterilisation");
-  const [catId, setCatId] = useState(initialCatId);
+function EmailPage({
+  snapshot,
+  initialAnimalId,
+  setSnapshot,
+  setNotice,
+}: {
+  snapshot: AppSnapshot;
+  initialAnimalId: string;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  setNotice: (notice: Notice | null) => void;
+}) {
+  const [exporting, setExporting] = useState(false);
+  const hasSterilization = snapshot.settings.enabledSpecies.some((speciesId) =>
+    registeredSpecies
+      .find((species) => species.id === speciesId)
+      ?.careCategories.includes("STERILISATION"),
+  );
+  const icadAnimals = snapshot.animals.filter((animal) =>
+    registeredSpecies
+      .find((species) => species.id === animal.speciesId)
+      ?.identificationSchemes.some((scheme) => scheme.id === "ICAD"),
+  );
+  const [kind, setKind] = useState(
+    initialAnimalId ? "sponsorNews" : hasSterilization ? "sterilisation" : "association",
+  );
+  const [animalId, setAnimalId] = useState(initialAnimalId);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [photoLinks, setPhotoLinks] = useState("");
   const templates: Record<string, { subject: string; body: string }> = {
     sterilisation: {
       subject: "Rappel de stérilisation",
-      body: "Bonjour,\\n\\nNous vous rappelons que la stérilisation de {chat} est à prévoir. Merci de nous tenir informés de la date du rendez-vous.\\n\\nL'association Cha'Mania",
+      body: "Bonjour,\\n\\nNous vous rappelons que la stérilisation de {animal} est à prévoir. Merci de nous tenir informés de la date du rendez-vous.\\n\\nL'association Cha'Mania",
     },
     icad: {
       subject: "Informations concernant ICAD",
-      body: "Bonjour,\\n\\nNous vous contactons au sujet de l'identification ICAD de {chat}.\\n\\nL'association Cha'Mania",
+      body: "Bonjour,\\n\\nNous vous contactons au sujet de l'identification ICAD de {animal}.\\n\\nL'association Cha'Mania",
     },
     association: {
       subject: "Les nouvelles de l'association",
       body: "Bonjour,\\n\\nVoici les dernières nouvelles de l'association Cha'Mania…",
     },
     sponsorNews: {
-      subject: "Des nouvelles de {chat}",
-      body: "Bonjour,\\n\\nVoici des nouvelles de {chat} :\\n\\n",
+      subject: "Des nouvelles de {animal}",
+      body: "Bonjour,\\n\\nVoici des nouvelles de {animal} :\\n\\n",
     },
   };
-  const chosen = snapshot.cats.find((cat) => cat.id === catId);
-  const fill = (value: string) => value.replaceAll("{chat}", chosen?.name ?? "votre chat");
+  const chosen = snapshot.animals.find((cat) => cat.id === animalId);
+  const fill = (value: string) => value.replaceAll("{animal}", chosen?.name ?? "votre animal");
   const selectTemplate = (value: string) => {
     setKind(value);
     setSubject(templates[value].subject);
@@ -785,7 +903,7 @@ function EmailPage({ snapshot, initialCatId }: { snapshot: AppSnapshot; initialC
   };
   useEffect(() => {
     selectTemplate(kind);
-  }, [catId]);
+  }, [animalId]);
   const recipients =
     kind === "association"
       ? [...snapshot.families, ...snapshot.adopters]
@@ -794,7 +912,7 @@ function EmailPage({ snapshot, initialCatId }: { snapshot: AppSnapshot; initialC
           .join(",")
       : kind === "sponsorNews"
         ? snapshot.sponsorships
-            .filter((sponsor) => sponsor.catId === catId && !sponsor.endDate)
+            .filter((sponsor) => sponsor.animalId === animalId && !sponsor.endDate)
             .map((sponsor) => sponsor.email)
             .filter(Boolean)
             .join(",")
@@ -803,11 +921,13 @@ function EmailPage({ snapshot, initialCatId }: { snapshot: AppSnapshot; initialC
               snapshot.families.find(
                 (family) =>
                   family.id ===
-                  snapshot.catViews.find((cat) => cat.id === chosen.id)?.currentFamilyId,
+                  snapshot.animalViews.find((cat) => cat.id === chosen.id)?.currentFamilyId,
               )?.email,
               ...snapshot.adopters
                 .filter((a) =>
-                  snapshot.adoptions.some((ad) => ad.catId === chosen.id && ad.adopterId === a.id),
+                  snapshot.adoptions.some(
+                    (ad) => ad.animalId === chosen.id && ad.adopterId === a.id,
+                  ),
                 )
                 .map((a) => a.email),
             ]
@@ -819,27 +939,117 @@ function EmailPage({ snapshot, initialCatId }: { snapshot: AppSnapshot; initialC
     .map((link) => link.trim())
     .filter(Boolean)
     .join("\n");
-  const message = `${fill(body)}${kind === "sponsorNews" && photos ? `\n\nPhotos de ${chosen?.name ?? "votre chat"} :\n${photos}` : ""}`;
+  const message = `${fill(body)}${kind === "sponsorNews" && photos ? `\n\nPhotos de ${chosen?.name ?? "votre animal"} :\n${photos}` : ""}`;
   const mailto = `mailto:${recipients}?subject=${encodeURIComponent(fill(subject))}&body=${encodeURIComponent(message)}`;
   return (
     <div className="page-stack">
-      <div className="section-heading">
-        <p>Rappels de stérilisation, messages ICAD et nouvelles aux parrains</p>
-      </div>
+      <PageHeader>
+        <p>Rappels prêts à envoyer et messages liés aux animaux</p>
+      </PageHeader>
+      <Panel
+        title={`Rappels prêts à envoyer (${snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length})`}
+        action={
+          <Button
+            disabled={exporting || !snapshot.generatedEmails.some((email) => !email.acknowledgedAt)}
+            onClick={async () => {
+              try {
+                setExporting(true);
+                let current = snapshot;
+                if (!current.emailOutputDirectory) {
+                  const directory = await window.catApp.chooseEmailOutputDirectory();
+                  if (!directory) {
+                    return;
+                  }
+                  current = await window.catApp.setEmailOutputDirectory(directory);
+                  setSnapshot(current);
+                }
+                const result = await window.catApp.exportReadyEmails();
+                setSnapshot(result.snapshot);
+                setNotice({
+                  kind: "success",
+                  text: `${result.exportedCount} e-mail(s) exporté(s) dans ${result.directory}.`,
+                });
+              } catch (error) {
+                setNotice({ kind: "error", text: errorMessage(error) });
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            {exporting ? "Export…" : "Exporter les .eml"}
+          </Button>
+        }
+      >
+        <div className="email-output-setting">
+          <span>Dossier : {snapshot.emailOutputDirectory || "à choisir"}</span>
+          <Button
+            variant="text"
+            onClick={async () => {
+              const directory = await window.catApp.chooseEmailOutputDirectory();
+              if (directory) {
+                setSnapshot(await window.catApp.setEmailOutputDirectory(directory));
+              }
+            }}
+          >
+            Choisir un dossier
+          </Button>
+        </div>
+        {snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length === 0 ? (
+          <Empty text="Aucun rappel prêt à envoyer." />
+        ) : (
+          <div className="email-queue">
+            {snapshot.generatedEmails
+              .filter((email) => !email.acknowledgedAt)
+              .map((email) => (
+                <article className="email-queue-item" key={email.id}>
+                  <div>
+                    <strong>{email.subject}</strong>
+                    <span>
+                      À {email.recipientName} · {email.recipient} ·{" "}
+                      {snapshot.animals.find((animal) => animal.id === email.animalId)?.name}
+                    </span>
+                    <p>{email.body}</p>
+                  </div>
+                  <Button
+                    size="small"
+                    onClick={async () => {
+                      try {
+                        setSnapshot(await window.catApp.acknowledgeEmail(email.id));
+                      } catch (error) {
+                        setNotice({ kind: "error", text: errorMessage(error) });
+                      }
+                    }}
+                  >
+                    Marquer comme traité
+                  </Button>
+                </article>
+              ))}
+          </div>
+        )}
+      </Panel>
       <Panel title="Préparer un e-mail">
         <div className="form-grid">
           <Field label="Type de message">
             <select value={kind} onChange={(e) => selectTemplate(e.target.value)}>
-              <option value="sterilisation">Rappel stérilisation</option>
-              <option value="icad">Message ICAD</option>
+              {hasSterilization && <option value="sterilisation">Rappel stérilisation</option>}
+              {icadAnimals.length > 0 && (
+                <option
+                  value="icad"
+                  disabled={Boolean(
+                    chosen && !icadAnimals.some((animal) => animal.id === chosen.id),
+                  )}
+                >
+                  Message ICAD
+                </option>
+              )}
               <option value="association">Newsletter association</option>
               <option value="sponsorNews">Nouvelles aux parrains</option>
             </select>
           </Field>
-          <Field label="Chat (si concerné)">
-            <select value={catId} onChange={(e) => setCatId(e.target.value)}>
+          <Field label="Animal concerné">
+            <select value={animalId} onChange={(e) => setAnimalId(e.target.value)}>
               <option value="">Choisir</option>
-              {snapshot.cats.map((cat) => (
+              {snapshot.animals.map((cat) => (
                 <option value={cat.id} key={cat.id}>
                   {cat.name}
                 </option>
@@ -909,7 +1119,7 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
     void run(
       () =>
         window.catApp.createSponsorship({
-          catId: String(data.get("catId")),
+          animalId: String(data.get("animalId")),
           firstName: existing?.firstName ?? String(data.get("firstName")),
           lastName: existing?.lastName ?? String(data.get("lastName")),
           email: existing?.email ?? String(data.get("email")),
@@ -928,27 +1138,30 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
     ).then(() => setConfirmStopId(null));
   return (
     <div className="page-stack">
-      <div className="section-heading">
+      <PageHeader>
         <div>
           <p>
             {active.length} parrainages actifs · {total.toFixed(2)} € par mois
           </p>
-          <small className="sponsorship-subtitle">Suivi des parrains et des chats parrainés</small>
+          <small className="sponsorship-subtitle">
+            Suivi des parrains et des animaux parrainés
+          </small>
         </div>
-        <button className="button primary" onClick={() => setShowForm(!showForm)}>
+        <Button variant="primary" onClick={() => setShowForm(!showForm)}>
           {showForm ? "Fermer" : "+ Nouveau parrainage"}
-        </button>
-      </div>
+        </Button>
+      </PageHeader>
       {showForm && (
         <Panel title="Ajouter un parrainage">
           <form className="form-grid" onSubmit={submit}>
-            <Field label="Chat *">
-              <select name="catId" required>
+            <Field label="Animal *">
+              <select name="animalId" required>
                 <option value="">Choisir</option>
-                {snapshot.cats
+                {snapshot.animals
                   .filter(
                     (cat) =>
-                      snapshot.catViews.find((view) => view.id === cat.id)?.status !== "DECEASED",
+                      snapshot.animalViews.find((view) => view.id === cat.id)?.status !==
+                      "DECEASED",
                   )
                   .map((cat) => (
                     <option key={cat.id} value={cat.id}>
@@ -988,11 +1201,11 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
               </>
             )}
             <Field label="Début *">
-              <FrenchDateInput name="startDate" defaultValue={localToday()} required />
+              <DateInput name="startDate" defaultValue={localToday()} required />
             </Field>
-            <div className="form-actions">
-              <button className="button primary">Enregistrer le parrainage</button>
-            </div>
+            <FormActions>
+              <Button variant="primary">Enregistrer le parrainage</Button>
+            </FormActions>
           </form>
         </Panel>
       )}
@@ -1001,7 +1214,8 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
           <table className="adoption-table sponsorship-table">
             <thead>
               <tr>
-                <th>Chat</th>
+                <th>Animal</th>
+                <SpeciesTableHeader enabledSpecies={snapshot.settings.enabledSpecies} />
                 <th>Parrain / marraine</th>
                 <th>Contact</th>
                 <th>Mensuel</th>
@@ -1011,10 +1225,14 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
             </thead>
             <tbody>
               {snapshot.sponsorships.map((item) => {
-                const cat = snapshot.cats.find((candidate) => candidate.id === item.catId);
+                const cat = snapshot.animals.find((candidate) => candidate.id === item.animalId);
                 return (
                   <tr key={item.id}>
-                    <td>{cat ? <CatIdentity cat={cat} /> : "Chat inconnu"}</td>
+                    <td>{cat ? <AnimalIdentity cat={cat} /> : "Animal inconnu"}</td>
+                    <SpeciesTableCell
+                      enabledSpecies={snapshot.settings.enabledSpecies}
+                      speciesId={cat?.speciesId}
+                    />
                     <td>
                       <strong>
                         {item.firstName} {item.lastName}
@@ -1028,23 +1246,25 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
                     </td>
                     <td>
                       {item.endDate ? (
-                        <span className="care-status">Arrêté</span>
+                        <Badge className="care-status">Arrêté</Badge>
                       ) : confirmStopId === item.id ? (
                         <div className="sponsorship-stop-confirm">
-                          <button className="button tiny" onClick={() => stop(item)}>
+                          <Button variant="secondary" size="small" onClick={() => stop(item)}>
                             Confirmer
-                          </button>
-                          <button className="text-button" onClick={() => setConfirmStopId(null)}>
+                          </Button>
+                          <Button variant="text" onClick={() => setConfirmStopId(null)}>
                             Annuler
-                          </button>
+                          </Button>
                         </div>
                       ) : (
-                        <button
-                          className="button tiny sponsorship-stop"
+                        <Button
+                          variant="danger"
+                          size="small"
+                          className="sponsorship-stop"
                           onClick={() => setConfirmStopId(item.id)}
                         >
                           Arrêter le parrainage
-                        </button>
+                        </Button>
                       )}
                     </td>
                   </tr>
@@ -1059,17 +1279,30 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
   );
 }
 
-function CatsPage({ snapshot, run }: PageProps) {
+function AnimalsPage({ snapshot, run }: PageProps) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<CatStatus | "ALL">("ALL");
+  const [status, setStatus] = useState<AnimalStatus | "ALL">("ALL");
   const [sterilization, setSterilization] = useState<SterilizationStatus | "ALL">("ALL");
-  const [sortBy, setSortBy] = useState<CatSortField>("intakeDate");
+  const [sortBy, setSortBy] = useState<AnimalSortField>("intakeDate");
   const [direction, setDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [speciesFilter, setSpeciesFilter] = useState<SpeciesId | "ALL">("ALL");
   const [showForm, setShowForm] = useState(false);
-  useEffect(() => setPage(1), [query, status, sterilization, sortBy, direction, pageSize]);
-  const table = buildCatTable(snapshot.catViews, snapshot.families, {
+  const showSterilization = snapshot.settings.enabledSpecies.some((speciesId) =>
+    registeredSpecies
+      .find((species) => species.id === speciesId)
+      ?.careCategories.includes("STERILISATION"),
+  );
+  useEffect(
+    () => setPage(1),
+    [query, status, sterilization, sortBy, direction, pageSize, speciesFilter],
+  );
+  const filteredAnimals =
+    speciesFilter === "ALL"
+      ? snapshot.animalViews
+      : snapshot.animalViews.filter((animal) => animal.speciesId === speciesFilter);
+  const table = buildAnimalTable(filteredAnimals, snapshot.families, {
     query,
     status,
     sterilization,
@@ -1081,72 +1314,97 @@ function CatsPage({ snapshot, run }: PageProps) {
   return (
     <div className="page-stack">
       <div className="registry-toolbar">
-        <div className="search">
-          <span>⌕</span>
-          <input
-            placeholder="Nom, ICAD, famille ou notes…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value as CatStatus | "ALL")}
-        >
-          <option value="ALL">Tous les statuts</option>
-          {Object.entries(STATUS_LABEL).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={sterilization}
-          onChange={(event) => setSterilization(event.target.value as SterilizationStatus | "ALL")}
-        >
-          <option value="ALL">Toute stérilisation</option>
-          <option value="DONE">Stérilisé</option>
-          <option value="TODO">À stériliser</option>
-          <option value="UNKNOWN">Non renseigné</option>
-        </select>
-        <button className="button primary" onClick={() => setShowForm(!showForm)}>
-          {showForm ? "Fermer" : "+ Nouveau chat"}
-        </button>
+        <SearchField
+          label="Rechercher un animal"
+          placeholder={`${snapshot.animals.some((animal) => registeredSpecies.find((species) => species.id === animal.speciesId)?.identificationSchemes.some((scheme) => scheme.id === "ICAD")) ? "Nom, ICAD, " : "Nom, "}famille ou notes…`}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Button variant="primary" onClick={() => setShowForm(!showForm)}>
+          {showForm
+            ? "Fermer"
+            : `+ Nouveau ${snapshot.settings.enabledSpecies.length === 1 ? registeredSpecies.find((species) => species.id === snapshot.settings.enabledSpecies[0])?.label.singular : "animal"}`}
+        </Button>
       </div>
-      <div className="sort-toolbar">
+      <FilterBar label="Filtres du registre">
+        <SpeciesFilter
+          enabledSpecies={snapshot.settings.enabledSpecies}
+          value={speciesFilter}
+          onChange={setSpeciesFilter}
+        />
+        <Field label="Statut">
+          <select
+            value={status}
+            onChange={(event) => setStatus(optionValue(event.target.value, STATUS_OPTIONS, "ALL"))}
+          >
+            <option value="ALL">Tous les statuts</option>
+            {Object.entries(STATUS_LABEL).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {showSterilization && (
+          <Field label="Stérilisation">
+            <select
+              value={sterilization}
+              onChange={(event) =>
+                setSterilization(optionValue(event.target.value, STERILIZATION_FILTERS, "ALL"))
+              }
+            >
+              <option value="ALL">Toute stérilisation</option>
+              <option value="DONE">Stérilisé</option>
+              <option value="TODO">À stériliser</option>
+              <option value="UNKNOWN">Non renseigné</option>
+            </select>
+          </Field>
+        )}
+      </FilterBar>
+      <div className="sort-toolbar" data-density="compact">
         <strong>
-          {table.total} chat{table.total === 1 ? "" : "s"}
+          {table.total} {table.total === 1 ? "animal" : "animaux"}
         </strong>
-        <span>sur {snapshot.cats.length}</span>
-        <label>
-          Trier par{" "}
+        <span>sur {snapshot.animals.length}</span>
+        <Field label={<>Trier par </>}>
           <select
             value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as CatSortField)}
+            onChange={(event) =>
+              setSortBy(optionValue(event.target.value, SORT_OPTIONS, "intakeDate"))
+            }
           >
             <option value="intakeDate">Date d'arrivée</option>
             <option value="birthDate">Date de naissance</option>
             <option value="updatedAt">Dernière modification</option>
             <option value="name">Nom</option>
           </select>
-        </label>
-        <button
+        </Field>
+        <Button
+          variant="secondary"
+          size="small"
           className="sort-direction"
           onClick={() => setDirection(direction === "asc" ? "desc" : "asc")}
         >
           {direction === "asc" ? "↑ Croissant" : "↓ Décroissant"}
-        </button>
+        </Button>
       </div>
-      {showForm && <CatForm run={run} done={() => setShowForm(false)} />}
+      {showForm && <AnimalForm snapshot={snapshot} run={run} done={() => setShowForm(false)} />}
       <section className="registry-table-panel">
         <div className="table-wrap">
           <table className="registry-table">
             <thead>
               <tr>
-                <th>Chat</th>
+                <th>
+                  {snapshot.settings.enabledSpecies.length > 1
+                    ? "Animal"
+                    : registeredSpecies.find(
+                        (species) => species.id === snapshot.settings.enabledSpecies[0],
+                      )?.label.singular}
+                </th>
+                <SpeciesTableHeader enabledSpecies={snapshot.settings.enabledSpecies} />
                 <th>Statut</th>
                 <th>Profil</th>
-                <th>Stérilisation</th>
+                {showSterilization && <th>Stérilisation</th>}
                 <th>Adoptable</th>
                 <th>Arrivée</th>
                 <th>Lieu actuel</th>
@@ -1154,28 +1412,34 @@ function CatsPage({ snapshot, run }: PageProps) {
             </thead>
             <tbody>
               {table.rows.map((cat) => (
-                <tr key={cat.id} className="clickable-row" onClick={() => openCat(cat.id)}>
+                <tr key={cat.id} className="clickable-row" onClick={() => openAnimal(cat.id)}>
                   <td>
                     <div className="cat-cell">
                       <div className="table-avatar">{cat.name.slice(0, 1).toUpperCase()}</div>
-                      <CatIdentity cat={cat} />
+                      <AnimalIdentity cat={cat} />
                     </div>
                   </td>
+                  <SpeciesTableCell
+                    enabledSpecies={snapshot.settings.enabledSpecies}
+                    speciesId={cat.speciesId}
+                  />
                   <td>
-                    <span className={`status ${cat.status.toLowerCase()}`}>
+                    <Badge className={`status ${cat.status.toLowerCase()}`}>
                       {STATUS_LABEL[cat.status]}
-                    </span>
+                    </Badge>
                   </td>
-                  <td>{PROFILE_LABEL[cat.profile]}</td>
-                  <td>
-                    <span className={`sterilization ${cat.sterilizationStatus.toLowerCase()}`}>
-                      {cat.sterilizationStatus === "DONE"
-                        ? "Oui"
-                        : cat.sterilizationStatus === "TODO"
-                          ? "À faire"
-                          : "Inconnu"}
-                    </span>
-                  </td>
+                  <td>{profileLabel(cat.speciesId, cat.profile)}</td>
+                  {showSterilization && (
+                    <td>
+                      <Badge className={`sterilization ${cat.sterilizationStatus.toLowerCase()}`}>
+                        {cat.sterilizationStatus === "DONE"
+                          ? "Oui"
+                          : cat.sterilizationStatus === "TODO"
+                            ? "À faire"
+                            : "Inconnu"}
+                      </Badge>
+                    </td>
+                  )}
                   <td>
                     <Adoptability cat={cat} />
                   </td>
@@ -1188,29 +1452,35 @@ function CatsPage({ snapshot, run }: PageProps) {
             </tbody>
           </table>
         </div>
-        {!table.rows.length && <Empty text="Aucun chat ne correspond à ces filtres." />}
-        <div className="pagination">
-          <label>
-            Afficher{" "}
+        {!table.rows.length && <Empty text="Aucun animal ne correspond à ces filtres." />}
+        <div className="pagination" data-density="compact">
+          <Field label={<>Afficher </>}>
             <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
-          </label>
+          </Field>
           <span>
             Page {table.page} sur {table.pageCount}
           </span>
           <div>
-            <button disabled={table.page <= 1} onClick={() => setPage(table.page - 1)}>
+            <Button
+              variant="secondary"
+              size="small"
+              disabled={table.page <= 1}
+              onClick={() => setPage(table.page - 1)}
+            >
               ← Précédent
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              size="small"
               disabled={table.page >= table.pageCount}
               onClick={() => setPage(table.page + 1)}
             >
               Suivant →
-            </button>
+            </Button>
           </div>
         </div>
       </section>
@@ -1219,26 +1489,26 @@ function CatsPage({ snapshot, run }: PageProps) {
 }
 
 function HealthIssuePage({
-  catId,
+  animalId,
   snapshot,
   run,
   setSnapshot,
   setNotice,
   back,
 }: PageProps & {
-  catId: string;
+  animalId: string;
   setSnapshot: (snapshot: AppSnapshot) => void;
   setNotice: (notice: Notice | null) => void;
   back: () => void;
 }) {
-  const cat = snapshot.catViews.find((candidate) => candidate.id === catId)!;
+  const cat = snapshot.animalViews.find((candidate) => candidate.id === animalId)!;
   const [exposures, setExposures] = useState<HealthExposure[]>([]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     try {
       const result = await window.catApp.declareSickness({
-        catId,
+        animalId,
         disease: String(data.get("disease")),
         declaredAt: String(data.get("declaredAt")),
         lookbackDays: Number(data.get("lookbackDays")),
@@ -1256,21 +1526,21 @@ function HealthIssuePage({
   };
   return (
     <div className="page-stack health-issue-page">
-      <div className="section-heading">
+      <PageHeader>
         <div>
-          <p>Suivi sanitaire de {cat.name} et recherche des chats potentiellement exposés.</p>
+          <p>Suivi sanitaire de {cat.name} et recherche des animaux potentiellement exposés.</p>
         </div>
-        <button className="button secondary" onClick={back}>
+        <Button variant="secondary" onClick={back}>
           ← Retour aux rappels
-        </button>
-      </div>
+        </Button>
+      </PageHeader>
       <Panel title={`Déclarer un problème de santé · ${cat.name}`}>
         <form className="form-grid" onSubmit={submit}>
           <Field label="Maladie ou suspicion">
             <input name="disease" required autoFocus />
           </Field>
           <Field label="Date">
-            <FrenchDateInput name="declaredAt" required defaultValue={localToday()} />
+            <DateInput name="declaredAt" required defaultValue={localToday()} />
           </Field>
           <Field label="Recherche de contacts (jours)">
             <input name="lookbackDays" type="number" min="0" max="365" defaultValue="14" />
@@ -1278,20 +1548,20 @@ function HealthIssuePage({
           <Field label="Notes" wide>
             <input name="notes" />
           </Field>
-          <div className="form-actions">
-            <button className="button primary">Déclarer et rechercher les contacts</button>
-          </div>
+          <FormActions>
+            <Button variant="primary">Déclarer et rechercher les contacts</Button>
+          </FormActions>
         </form>
         <p className="panel-intro">
-          La recherche utilise les lieux et périodes de présence enregistrés pour ce chat.
+          La recherche utilise les lieux et périodes de présence enregistrés pour cet animal.
         </p>
       </Panel>
       {exposures.length > 0 && (
-        <Panel title="Chats ayant partagé le même lieu">
+        <Panel title="Animaux ayant partagé le même lieu">
           <div className="exposure-box">
             {exposures.map((item, index) => (
-              <div key={`${item.catId}-${index}`}>
-                <b>{snapshot.cats.find((candidate) => candidate.id === item.catId)?.name}</b>
+              <div key={`${item.animalId}-${index}`}>
+                <b>{snapshot.animals.find((candidate) => candidate.id === item.animalId)?.name}</b>
                 <span>
                   {item.locationLabel} · {formatDate(item.overlapStart)}–
                   {formatDate(item.overlapEnd)}
@@ -1305,27 +1575,30 @@ function HealthIssuePage({
   );
 }
 
-function CatDetail({
-  catId,
+function AnimalDetail({
+  animalId,
   snapshot,
   close,
   goHealth,
   run,
   setSnapshot,
   setNotice,
-  setEmailCatId,
+  setEmailAnimalId,
   setPage,
 }: PageProps & {
-  catId: string;
+  animalId: string;
   close: () => void;
   goHealth: () => void;
   setSnapshot: (snapshot: AppSnapshot) => void;
   setNotice: (notice: Notice | null) => void;
-  setEmailCatId: (catId: string) => void;
+  setEmailAnimalId: (animalId: string) => void;
   setPage: (page: Page) => void;
 }) {
-  const cat = snapshot.catViews.find((candidate) => candidate.id === catId)!;
+  const cat = snapshot.animalViews.find((candidate) => candidate.id === animalId)!;
+  const speciesDefinition = registeredSpecies.find((species) => species.id === cat.speciesId)!;
   const [photo, setPhoto] = useState(cat.photo ?? "");
+  const [speciesData, setSpeciesData] = useState<SpeciesData>(cat.speciesData);
+  const [adoptionEligibility, setAdoptionEligibility] = useState(cat.adoptionEligibility);
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
   const [cropX, setCropX] = useState(50);
   const [cropY, setCropY] = useState(50);
@@ -1334,8 +1607,8 @@ function CatDetail({
   const [showHistoryForm, setShowHistoryForm] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [historyWidth, setHistoryWidth] = useState(33);
-  const events = snapshot.catEvents
-    .filter((event) => event.catId === catId && !["ADOPTED", "RETURNED"].includes(event.type))
+  const events = snapshot.animalEvents
+    .filter((event) => event.animalId === animalId && !["ADOPTED", "RETURNED"].includes(event.type))
     .map((event) => ({
       id: event.id,
       deletable: event.type === "NOTE_ADDED",
@@ -1344,7 +1617,7 @@ function CatDetail({
       notes: event.notes,
     }));
   const placements = snapshot.fosterPlacements
-    .filter((item) => item.catId === catId)
+    .filter((item) => item.animalId === animalId)
     .map((item) => ({
       id: undefined,
       deletable: false,
@@ -1353,7 +1626,7 @@ function CatDetail({
       notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.overrideReason ? ` · Dérogation: ${item.overrideReason}` : ""}`,
     }));
   const adoptions = snapshot.adoptions
-    .filter((item) => item.catId === catId)
+    .filter((item) => item.animalId === animalId)
     .map((item) => ({
       id: undefined,
       deletable: false,
@@ -1362,7 +1635,7 @@ function CatDetail({
       notes: `${item.status === "ACTIVE" ? "Active" : `Retour le ${formatDate(item.endedAt)}`}${item.partner ? ` · ${item.partner}` : ""}`,
     }));
   const stays = snapshot.refugeStays
-    .filter((item) => item.catId === catId)
+    .filter((item) => item.animalId === animalId)
     .map((item) => ({
       id: undefined,
       deletable: false,
@@ -1371,7 +1644,7 @@ function CatDetail({
       notes: `${formatDate(item.startDate)} → ${formatDate(item.endDate)}${item.reason ? ` · ${item.reason}` : ""}`,
     }));
   const taskHistory = snapshot.tasks
-    .filter((task) => task.catId === catId && task.status !== "CANCELLED")
+    .filter((task) => task.animalId === animalId && task.status !== "CANCELLED")
     .map((task) => ({
       id: undefined,
       deletable: false,
@@ -1389,14 +1662,14 @@ function CatDetail({
     snapshot.tasks
       .filter(
         (task) =>
-          task.catId === catId &&
+          task.animalId === animalId &&
           task.status === "OPEN" &&
           (kind === "anti-puce"
             ? task.type === "ANTI_PUCE" || task.type.toLowerCase().includes(kind)
             : task.type.toLowerCase().includes(kind)),
       )
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.dueDate;
-  const saveCatProfile = (event: FormEvent<HTMLFormElement>) => {
+  const saveAnimalProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const yesNo = (key: string) =>
@@ -1404,21 +1677,31 @@ function CatDetail({
     void cropPhotoToSquare(photo, cropX, cropY, cropScale).then((savedPhoto) =>
       run(
         () =>
-          window.catApp.updateCat({
-            id: catId,
+          window.catApp.updateAnimal({
+            id: animalId,
             description: String(data.get("description")),
             photo: savedPhoto,
-            okWithCats: yesNo("cats"),
-            okWithDogs: yesNo("dogs"),
+            compatibilityBySpecies: {
+              ...cat.compatibilityBySpecies,
+              ...Object.fromEntries(
+                snapshot.settings.enabledSpecies.map((speciesId) => [speciesId, yesNo(speciesId)]),
+              ),
+            },
+            speciesData,
             okWithChildren: yesNo("children"),
             medications: String(data.get("medications")),
             vaccines: String(data.get("vaccines")),
             deworming: String(data.get("deworming")),
             antiFlea: String(data.get("antiFlea")),
-            adoptionEligibility: String(data.get("eligibility")) as AdoptionEligibility,
-            adoptionBlockedReason: String(data.get("reason")),
+            adoptionEligibility,
+            adoptionBlockedReason:
+              adoptionEligibility === "INELIGIBLE"
+                ? String(data.get("reason") ?? "")
+                : adoptionEligibility === "ON_HOLD"
+                  ? cat.adoptionBlockedReason
+                  : "",
           }),
-        "Fiche du chat mise à jour.",
+        "Fiche de l’animal mise à jour.",
       ),
     );
   };
@@ -1453,8 +1736,8 @@ function CatDetail({
     const nextDate = String(data.get("nextDate"));
     void run(
       () =>
-        window.catApp.recordCatHistory({
-          catId,
+        window.catApp.recordAnimalHistory({
+          animalId,
           date: String(data.get("date")),
           title: String(data.get("title")),
           notes: String(data.get("notes")),
@@ -1464,7 +1747,7 @@ function CatDetail({
     ).then(() => setShowHistoryForm(false));
   };
   const hasActiveSupporter = snapshot.sponsorships.some(
-    (item) => item.catId === catId && !item.endDate,
+    (item) => item.animalId === animalId && !item.endDate,
   );
   const openHealthPage = () => goHealth();
   return (
@@ -1477,65 +1760,73 @@ function CatDetail({
                 <img
                   src={photo}
                   alt={`Photo de ${cat.name}`}
-                  style={{ objectPosition: `${cropX}% ${cropY}%` }}
+                  style={{ "--photo-position": `${cropX}% ${cropY}%` } as CSSProperties}
                 />
               ) : (
                 cat.name.slice(0, 1)
               )}
             </div>
             <div>
-              <span className={`status ${cat.status.toLowerCase()}`}>
+              <Badge className={`status ${cat.status.toLowerCase()}`}>
                 {STATUS_LABEL[cat.status]}
-              </span>
+              </Badge>
               <h2 className="cat-name-icad">
                 {cat.name}
                 {cat.identificationNumber && (
                   <>
                     - {cat.identificationNumber}
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="icon"
                       type="button"
                       className="copy-icad"
-                      title="Copier le numéro ICAD"
-                      aria-label="Copier le numéro ICAD"
+                      title={
+                        cat.identificationScheme === "ICAD"
+                          ? "Copier le numéro ICAD"
+                          : "Copier le numéro d'identification"
+                      }
+                      aria-label={
+                        cat.identificationScheme === "ICAD"
+                          ? "Copier le numéro ICAD"
+                          : "Copier le numéro d'identification"
+                      }
                       onClick={() => void navigator.clipboard.writeText(cat.identificationNumber)}
                     >
                       ▢
-                    </button>
+                    </Button>
                   </>
                 )}
               </h2>
               <p>
-                {cat.currentLocationLabel || "Sans lieu actuel"} · {PROFILE_LABEL[cat.profile]}
+                {cat.currentLocationLabel || "Sans lieu actuel"} ·{" "}
+                {profileLabel(cat.speciesId, cat.profile)}
               </p>
             </div>
           </div>
           <div className="detail-header-actions">
-            <button
-              className="button secondary"
-              onClick={() => setShowHistoryForm(!showHistoryForm)}
-            >
+            <Button variant="secondary" onClick={() => setShowHistoryForm(!showHistoryForm)}>
               {showHistoryForm ? "Fermer les événements" : "+ Événement"}
-            </button>
-            <button
-              className="button primary"
+            </Button>
+            <Button
+              variant="primary"
               disabled={!hasActiveSupporter}
-              title={!hasActiveSupporter ? "Ce chat n’a pas de parrain actif" : undefined}
+              title={!hasActiveSupporter ? "Cet animal n’a pas de parrain actif" : undefined}
               onClick={() => {
-                setEmailCatId(catId);
+                setEmailAnimalId(animalId);
                 close();
                 setPage("email");
               }}
             >
               ✉ Donner des nouvelles
-            </button>
+            </Button>
             <div className="cat-action-menu-wrap">
-              <button
-                className="button secondary"
+              <Button
+                variant="secondary"
                 aria-expanded={showActionMenu}
                 onClick={() => setShowActionMenu(!showActionMenu)}
               >
                 Actions ▾
-              </button>
+              </Button>
               {showActionMenu && (
                 <div className="cat-action-menu">
                   <button
@@ -1547,8 +1838,8 @@ function CatDetail({
                     Déclarer un problème de santé
                   </button>
                   {cat.status !== "DECEASED" && (
-                    <CatDeathAction
-                      catId={catId}
+                    <AnimalDeathAction
+                      animalId={animalId}
                       catName={cat.name}
                       setSnapshot={setSnapshot}
                       onStart={() => setShowActionMenu(false)}
@@ -1557,21 +1848,37 @@ function CatDetail({
                 </div>
               )}
             </div>
-            <button className="drawer-close" onClick={close} aria-label="Fermer">
+            <Button
+              variant="secondary"
+              size="icon"
+              className="drawer-close"
+              onClick={close}
+              aria-label="Fermer"
+            >
               ×
-            </button>
+            </Button>
           </div>
         </header>
         <p className="cat-birth-date">Né(e) le {formatDate(cat.birthDate)}</p>
         <div
           className="cat-detail-columns"
-          style={{
-            gridTemplateColumns: `minmax(0, ${100 - historyWidth}fr) 8px minmax(0, ${historyWidth}fr)`,
-          }}
+          style={
+            {
+              "--detail-main-width": `${100 - historyWidth}fr`,
+              "--detail-history-width": `${historyWidth}fr`,
+            } as CSSProperties
+          }
         >
           <div className="cat-detail-main">
             <Panel title="Profil et besoins">
-              <form className="form-grid cat-detail-form" onSubmit={saveCatProfile}>
+              <form className="form-grid cat-detail-form" onSubmit={saveAnimalProfile}>
+                <SpeciesDetailsFields
+                  speciesId={cat.speciesId}
+                  value={speciesData}
+                  onChange={setSpeciesData}
+                  catalog={snapshot.settings.appearanceCatalog?.[cat.speciesId]}
+                  animals={snapshot.animals}
+                />
                 <Field label="Description" wide>
                   <textarea
                     name="description"
@@ -1583,9 +1890,10 @@ function CatDetail({
                 <Field label="Photo depuis votre ordinateur" wide>
                   <input type="file" accept="image/*" onChange={readPhoto} />
                   {photo && (
-                    <button
+                    <Button
                       type="button"
-                      className="button secondary crop-open-button"
+                      variant="secondary"
+                      className="crop-open-button"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1593,44 +1901,44 @@ function CatDetail({
                       }}
                     >
                       Recadrer la photo
-                    </button>
+                    </Button>
                   )}
                 </Field>
-                <Field label="Adoptabilité">
-                  <select name="eligibility" defaultValue={cat.adoptionEligibility}>
-                    <option value="ELIGIBLE">Adoptable</option>
-                    <option value="ON_HOLD">En attente</option>
-                    <option value="INELIGIBLE">Non adoptable</option>
-                  </select>
-                </Field>
-                <Field label="Motif">
-                  <input
-                    name="reason"
-                    defaultValue={cat.adoptionBlockedReason}
-                    placeholder="Motif si nécessaire"
-                  />
-                </Field>
-                {(
-                  [
-                    ["cats", "Avec les chats", cat.okWithCats],
-                    ["dogs", "Avec les chiens", cat.okWithDogs],
-                    ["children", "Avec les enfants", cat.okWithChildren],
-                  ] as const
-                ).map(([key, label, value]) => (
-                  <CompatibilityChoices key={key} name={key} label={label} value={value} />
-                ))}
+                <AdoptabilityFields
+                  value={adoptionEligibility}
+                  onChange={setAdoptionEligibility}
+                  reasonName="reason"
+                  reason={cat.adoptionBlockedReason}
+                />
+                {snapshot.settings.enabledSpecies.length > 1 &&
+                  snapshot.settings.enabledSpecies.map((speciesId) => {
+                    const species = registeredSpecies.find((item) => item.id === speciesId)!;
+                    return (
+                      <CompatibilityChoices
+                        key={speciesId}
+                        name={speciesId}
+                        label={`Avec les ${species.label.plural.toLocaleLowerCase("fr-FR")}`}
+                        value={cat.compatibilityBySpecies[speciesId]}
+                      />
+                    );
+                  })}
+                <CompatibilityChoices
+                  name="children"
+                  label="Avec les enfants"
+                  value={cat.okWithChildren}
+                />
                 <input type="hidden" name="medications" value={cat.medications || ""} />
                 <input type="hidden" name="vaccines" value={cat.vaccines || ""} />
                 <input type="hidden" name="deworming" value={cat.deworming || ""} />
                 <input type="hidden" name="antiFlea" value={cat.antiFlea || ""} />
-                <div className="form-actions">
-                  <button className="button primary">Enregistrer la fiche</button>
-                </div>
+                <FormActions>
+                  <Button variant="primary">Enregistrer la fiche</Button>
+                </FormActions>
               </form>
             </Panel>
             <Panel
               title="Santé et soins"
-              action={<HealthAction catId={catId} status={cat.healthStatus} run={run} />}
+              action={<HealthAction animalId={animalId} status={cat.healthStatus} run={run} />}
             >
               <div className="health-care-grid">
                 <TreatmentAction
@@ -1640,39 +1948,45 @@ function CatDetail({
                   schedule={cat.medicationSchedule || ""}
                   endDate={cat.medicationEndDate || ""}
                   reminderDate={reminderDateFor("médicament")}
-                  catId={catId}
+                  animalId={animalId}
                   setSnapshot={setSnapshot}
                 />
-                <TreatmentAction
-                  label="Vaccins"
-                  field="vaccines"
-                  value={cat.vaccines || ""}
-                  reminderDate={
-                    reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")
-                  }
-                  catId={catId}
-                  setSnapshot={setSnapshot}
-                />
-                <TreatmentAction
-                  label="Vermifuge"
-                  field="deworming"
-                  value={cat.deworming || ""}
-                  reminderDate={
-                    reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")
-                  }
-                  catId={catId}
-                  setSnapshot={setSnapshot}
-                />
-                <TreatmentAction
-                  label="Anti-puce"
-                  field="antiFlea"
-                  value={cat.antiFlea || ""}
-                  reminderDate={
-                    reminderDateFor("anti-puce") || dateFromHealthMessage(cat.antiFlea || "")
-                  }
-                  catId={catId}
-                  setSnapshot={setSnapshot}
-                />
+                {speciesDefinition.careCategories.includes("VACCIN") && (
+                  <TreatmentAction
+                    label="Vaccins"
+                    field="vaccines"
+                    value={cat.vaccines || ""}
+                    reminderDate={
+                      reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")
+                    }
+                    animalId={animalId}
+                    setSnapshot={setSnapshot}
+                  />
+                )}
+                {speciesDefinition.careCategories.includes("VERMIFUGE") && (
+                  <TreatmentAction
+                    label="Vermifuge"
+                    field="deworming"
+                    value={cat.deworming || ""}
+                    reminderDate={
+                      reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")
+                    }
+                    animalId={animalId}
+                    setSnapshot={setSnapshot}
+                  />
+                )}
+                {speciesDefinition.careCategories.includes("ANTI_PUCE") && (
+                  <TreatmentAction
+                    label="Anti-puce"
+                    field="antiFlea"
+                    value={cat.antiFlea || ""}
+                    reminderDate={
+                      reminderDateFor("anti-puce") || dateFromHealthMessage(cat.antiFlea || "")
+                    }
+                    animalId={animalId}
+                    setSnapshot={setSnapshot}
+                  />
+                )}
               </div>
             </Panel>
           </div>
@@ -1707,7 +2021,7 @@ function CatDetail({
                 <Panel title="Ajouter un événement">
                   <form className="form-grid" onSubmit={recordHistory}>
                     <Field label="Date">
-                      <FrenchDateInput name="date" defaultValue={localToday()} required />
+                      <DateInput name="date" defaultValue={localToday()} required />
                     </Field>
                     <Field label="Événement / action">
                       <input
@@ -1717,7 +2031,7 @@ function CatDetail({
                       />
                     </Field>
                     <Field label="Prochaine échéance (facultatif)">
-                      <FrenchDateInput name="nextDate" />
+                      <DateInput name="nextDate" />
                     </Field>
                     <Field label="Notes" wide>
                       <textarea
@@ -1726,9 +2040,9 @@ function CatDetail({
                         placeholder="Ce qui s’est passé, résultat, détails utiles…"
                       />
                     </Field>
-                    <div className="form-actions">
-                      <button className="button secondary">Ajouter l’événement</button>
-                    </div>
+                    <FormActions>
+                      <Button variant="secondary">Ajouter l’événement</Button>
+                    </FormActions>
                   </form>
                   <p className="panel-intro">
                     Une prochaine échéance créera aussi un rappel dans les événements.
@@ -1746,21 +2060,22 @@ function CatDetail({
                         <small>{item.notes || "—"}</small>
                       </p>
                       {item.deletable && item.id && (
-                        <button
-                          className="icon-button danger"
+                        <Button
+                          variant="danger"
+                          size="icon"
                           title="Supprimer cet événement"
                           aria-label="Supprimer cet événement"
                           onClick={() => {
                             if (window.confirm("Supprimer cet événement ?")) {
                               void run(
-                                () => window.catApp.deleteCatEvent(item.id!),
+                                () => window.catApp.deleteAnimalEvent(item.id!),
                                 "Événement supprimé.",
                               );
                             }
                           }}
                         >
                           ×
-                        </button>
+                        </Button>
                       )}
                     </div>
                   ))}
@@ -1807,13 +2122,13 @@ function dateFromHealthMessage(value: string): string | undefined {
   return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
 }
 
-function CatDeathAction({
-  catId,
+function AnimalDeathAction({
+  animalId,
   catName,
   setSnapshot,
   onStart,
 }: {
-  catId: string;
+  animalId: string;
   catName: string;
   setSnapshot: (snapshot: AppSnapshot) => void;
   onStart?: () => void;
@@ -1824,8 +2139,8 @@ function CatDeathAction({
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     try {
-      const snapshot = await window.catApp.declareCatDeceased({
-        catId,
+      const snapshot = await window.catApp.declareAnimalDeceased({
+        animalId,
         date: String(data.get("date")),
         notes: String(data.get("notes")),
       });
@@ -1859,33 +2174,31 @@ function CatDeathAction({
           <section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}>
             <h2>Déclarer le décès de {catName}</h2>
             <p>Les parrainages actifs seront arrêtés à cette date.</p>
-            <form onSubmit={(event) => void submit(event)}>
-              <label>
-                Date du décès
-                <FrenchDateInput name="date" defaultValue={localToday()} required />
-              </label>
-              <label>
-                Note (facultatif)
+            <form className="stack-form" onSubmit={(event) => void submit(event)}>
+              <Field label={<>Date du décès</>}>
+                <DateInput name="date" defaultValue={localToday()} required />
+              </Field>
+              <Field label={<>Note (facultatif)</>}>
                 <input name="notes" />
-              </label>
+              </Field>
               {error && (
-                <p className="inline-action-error" role="alert">
+                <Callout tone="danger" role="alert">
                   {error}
-                </p>
+                </Callout>
               )}
-              <div className="form-actions">
-                <button
+              <FormActions>
+                <Button
                   type="button"
-                  className="button secondary"
+                  variant="secondary"
                   onClick={() => {
                     setOpen(false);
                     onStart?.();
                   }}
                 >
                   Annuler
-                </button>
-                <button className="button danger">Confirmer le décès</button>
-              </div>
+                </Button>
+                <Button variant="danger">Confirmer le décès</Button>
+              </FormActions>
             </form>
           </section>
         </div>
@@ -1901,7 +2214,7 @@ function TreatmentAction({
   schedule = "",
   endDate = "",
   reminderDate,
-  catId,
+  animalId,
   setSnapshot,
 }: {
   label: string;
@@ -1910,7 +2223,7 @@ function TreatmentAction({
   schedule?: string;
   endDate?: string;
   reminderDate?: string;
-  catId: string;
+  animalId: string;
   setSnapshot: (snapshot: AppSnapshot) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1943,9 +2256,9 @@ function TreatmentAction({
         field === "medications"
           ? { medications: text, medicationSchedule: hours, medicationEndDate: until }
           : { [field]: text };
-      await window.catApp.updateCat({ id: catId, ...update });
-      const snapshot = await window.catApp.recordCatHistory({
-        catId,
+      await window.catApp.updateAnimal({ id: animalId, ...update });
+      const snapshot = await window.catApp.recordAnimalHistory({
+        animalId,
         date,
         title: `${label} · ${text || "mise à jour"}`,
         notes:
@@ -1965,14 +2278,14 @@ function TreatmentAction({
   const dismissMedication = async () => {
     setLocalError("");
     try {
-      await window.catApp.updateCat({
-        id: catId,
+      await window.catApp.updateAnimal({
+        id: animalId,
         medications: "",
         medicationSchedule: "",
         medicationEndDate: "",
       });
-      const snapshot = await window.catApp.recordCatHistory({
-        catId,
+      const snapshot = await window.catApp.recordAnimalHistory({
+        animalId,
         date: localToday(),
         title: "Médicament arrêté",
         notes: `${value} · le traitement n'est plus nécessaire.`,
@@ -2034,9 +2347,10 @@ function TreatmentAction({
         <div className="small-action-backdrop" onMouseDown={() => setOpen(false)}>
           <section className="small-action-panel" onMouseDown={(event) => event.stopPropagation()}>
             <h2>{label} · suivi de santé</h2>
-            <form onSubmit={(event) => void save(event)}>
-              <label>
-                {field === "medications" ? "Médicament et dose" : "Message / état"}
+            <form className="stack-form" onSubmit={(event) => void save(event)}>
+              <Field
+                label={<>{field === "medications" ? "Médicament et dose" : "Message / état"}</>}
+              >
                 <input
                   autoFocus
                   value={text}
@@ -2047,44 +2361,46 @@ function TreatmentAction({
                       : "Ajouter le message ou l'état"
                   }
                 />
-              </label>
+              </Field>
               {field === "medications" && (
                 <>
-                  <label>
-                    Heures et fréquence
+                  <Field label={<>Heures et fréquence</>}>
                     <input
                       value={hours}
                       onChange={(event) => setHours(event.target.value)}
                       placeholder="Ex. 08:00 et 20:00"
                     />
-                  </label>
-                  <label>
-                    Fin du traitement
-                    <FrenchDateInput name="until" value={until} onChange={setUntil} />
-                  </label>
+                  </Field>
+                  <Field label={<>Fin du traitement</>}>
+                    <DateInput name="until" value={until} onChange={setUntil} />
+                  </Field>
                 </>
               )}
-              <label>
-                Date de l’action
-                <FrenchDateInput name="date" defaultValue={localToday()} required />
-              </label>
-              <label>
-                {field === "medications"
-                  ? "Prochaine prise (facultatif)"
-                  : "Prochaine échéance (facultatif)"}
-                <FrenchDateInput name="nextDate" defaultValue={reminderDate} />
-              </label>
+              <Field label={<>Date de l’action</>}>
+                <DateInput name="date" defaultValue={localToday()} required />
+              </Field>
+              <Field
+                label={
+                  <>
+                    {field === "medications"
+                      ? "Prochaine prise (facultatif)"
+                      : "Prochaine échéance (facultatif)"}
+                  </>
+                }
+              >
+                <DateInput name="nextDate" defaultValue={reminderDate} />
+              </Field>
               {localError && (
-                <p className="inline-action-error" role="alert">
+                <Callout tone="danger" role="alert">
                   {localError}
-                </p>
+                </Callout>
               )}
-              <div className="form-actions">
-                <button type="button" className="button secondary" onClick={() => setOpen(false)}>
+              <FormActions>
+                <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
                   Annuler
-                </button>
-                <button className="button primary">Enregistrer</button>
-              </div>
+                </Button>
+                <Button variant="primary">Enregistrer</Button>
+              </FormActions>
             </form>
           </section>
         </div>
@@ -2101,18 +2417,18 @@ function TreatmentAction({
               fiche et cette décision ajoutée à l’historique.
             </p>
             {localError && (
-              <p className="inline-action-error" role="alert">
+              <Callout tone="danger" role="alert">
                 {localError}
-              </p>
+              </Callout>
             )}
-            <div className="form-actions">
-              <button className="button secondary" onClick={() => setConfirmDismiss(false)}>
+            <FormActions>
+              <Button variant="secondary" onClick={() => setConfirmDismiss(false)}>
                 Annuler
-              </button>
-              <button className="button primary" onClick={() => void dismissMedication()}>
+              </Button>
+              <Button variant="primary" onClick={() => void dismissMedication()}>
                 Confirmer l’arrêt
-              </button>
-            </div>
+              </Button>
+            </FormActions>
           </section>
         </div>
       )}
@@ -2180,48 +2496,54 @@ function PhotoCropDialog({
           <img src={photo} alt="Photo à recadrer" />
           <div
             className="photo-crop-circle"
-            style={{ left: center(x), top: center(y), width: `${circleSize}%` }}
+            style={
+              {
+                "--crop-x": center(x),
+                "--crop-y": center(y),
+                "--crop-size": `${circleSize}%`,
+              } as CSSProperties
+            }
           />
         </div>
         <div className="crop-size-control">
           <span>Taille du cercle</span>
-          <button
-            className="button secondary"
+          <Button
+            variant="secondary"
             aria-label="Réduire le cercle"
             disabled={scale <= 55}
             onClick={() => setScale(Math.max(55, scale - 5))}
           >
             −
-          </button>
+          </Button>
           <output>{scale}%</output>
-          <button
-            className="button secondary"
+          <Button
+            variant="secondary"
             aria-label="Agrandir le cercle"
             disabled={scale >= 100}
             onClick={() => setScale(Math.min(100, scale + 5))}
           >
             +
-          </button>
+          </Button>
         </div>
-        <div className="form-actions">
-          <button className="button secondary" onClick={cancel}>
+        <FormActions>
+          <Button variant="secondary" onClick={cancel}>
             Annuler
-          </button>
-          <button className="button primary" onClick={() => apply(x, y, scale)}>
+          </Button>
+          <Button variant="primary" onClick={() => apply(x, y, scale)}>
             OK
-          </button>
-        </div>
+          </Button>
+        </FormActions>
       </section>
     </div>
   );
 }
 
 function HealthAction({
-  catId,
+  animalId,
   status,
   run,
 }: {
-  catId: string;
+  animalId: string;
   status: "HEALTHY" | "SICK" | "RECOVERED";
   run: PageProps["run"];
 }) {
@@ -2229,7 +2551,7 @@ function HealthAction({
   const label = status === "SICK" ? "Malade" : status === "RECOVERED" ? "Rétabli" : "Sain";
   const update = (healthStatus: "HEALTHY" | "SICK" | "RECOVERED") => {
     void run(
-      () => window.catApp.updateCat({ id: catId, healthStatus }),
+      () => window.catApp.updateAnimal({ id: animalId, healthStatus }),
       "État de santé mis à jour.",
     ).then(() => setOpen(false));
   };
@@ -2299,56 +2621,109 @@ function CompatibilityChoices({
   ];
   const current = states.findIndex((state) => state.value === choice);
   return (
-    <div className="field compatibility-field">
-      <span>{label}</span>
-      <button
+    <FieldGroup label={label} className="compatibility-field">
+      <Button
         type="button"
+        variant="secondary"
         className={`compatibility-cycle ${choice}`}
         aria-label={`${label} : ${states[current].label}. Cliquer pour changer`}
         onClick={() => setChoice(states[(current + 1) % states.length].value)}
       >
         {states[current].label} <small>↻</small>
-      </button>
+      </Button>
       <input type="hidden" name={name} value={choice} />
-    </div>
+    </FieldGroup>
   );
 }
 
-function CatForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
+function AnimalForm({
+  snapshot,
+  run,
+  done,
+}: {
+  snapshot: AppSnapshot;
+  run: PageProps["run"];
+  done: () => void;
+}) {
   const [birthDate, setBirthDate] = useState("");
-  const [specialNeeds, setSpecialNeeds] = useState(false);
-  const automaticProfile = profileForBirthDate(birthDate) ?? "ADULT";
+  const [speciesId, setSpeciesId] = useState<SpeciesId>(
+    snapshot.settings.enabledSpecies[0] ?? "cat",
+  );
+  const [speciesData, setSpeciesData] = useState<SpeciesData>({});
+  const [adoptionEligibility, setAdoptionEligibility] = useState<AdoptionEligibility>("UNKNOWN");
+  const definition = registeredSpecies.find((species) => species.id === speciesId)!;
+  const [profileChoice, setProfileChoice] = useState(() =>
+    definition.deriveProfile ? "AUTO" : definition.defaultProfile,
+  );
+  const automaticProfile =
+    definition.deriveProfile?.(birthDate, new Date()) ?? definition.defaultProfile;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     void run(
       () =>
-        window.catApp.createCat({
+        window.catApp.createAnimal({
           name: String(data.get("name")),
+          speciesId,
+          speciesData,
           identificationNumber: String(data.get("identificationNumber")),
           birthDate: String(data.get("birthDate")),
-          sex: String(data.get("sex")) as "F" | "M" | "UNKNOWN",
-          profile: specialNeeds ? "SPECIAL_NEEDS" : automaticProfile,
-          sterilizationStatus: String(data.get("sterilizationStatus")) as SterilizationStatus,
-          adoptionEligibility: String(data.get("adoptionEligibility")) as AdoptionEligibility,
-          adoptionBlockedReason: String(data.get("adoptionBlockedReason")),
+          sex: formOption(data, "sex", SEX_OPTIONS, "UNKNOWN"),
+          profile:
+            profileChoice === "AUTO" && definition.deriveProfile
+              ? automaticProfile
+              : (profileChoice as AnimalProfile),
+          sterilizationStatus: formOption(
+            data,
+            "sterilizationStatus",
+            STERILIZATION_OPTIONS,
+            "UNKNOWN",
+          ),
+          adoptionEligibility,
+          adoptionBlockedReason:
+            adoptionEligibility === "INELIGIBLE"
+              ? String(data.get("adoptionBlockedReason") ?? "")
+              : "",
           intakeDate: String(data.get("intakeDate")),
           notes: String(data.get("notes")),
         }),
-      "Chat enregistré.",
+      `Fiche de ${definition.label.singular} créée.`,
     ).then(done);
   };
   return (
-    <Panel title="Enregistrer un chat">
+    <Panel title={`Enregistrer ${definition.label.definiteSingular}`}>
       <form className="form-grid" onSubmit={submit}>
+        <SpeciesSelector
+          enabledSpecies={snapshot.settings.enabledSpecies}
+          value={speciesId}
+          onChange={(id) => {
+            setSpeciesId(id);
+            setSpeciesData({});
+            const next = registeredSpecies.find((item) => item.id === id)!;
+            setProfileChoice(next.deriveProfile ? "AUTO" : next.defaultProfile);
+          }}
+        />
+        <SpeciesDetailsFields
+          speciesId={speciesId}
+          value={speciesData}
+          onChange={setSpeciesData}
+          catalog={snapshot.settings.appearanceCatalog?.[speciesId]}
+          animals={snapshot.animals}
+        />
         <Field label="Nom *">
           <input name="name" required />
         </Field>
-        <Field label="Numéro ICAD">
+        <Field
+          label={
+            definition.identificationSchemes.some((scheme) => scheme.id === "ICAD")
+              ? "Numéro ICAD"
+              : "Identifiant"
+          }
+        >
           <input name="identificationNumber" />
         </Field>
         <Field label="Date de naissance">
-          <FrenchDateInput name="birthDate" onChange={setBirthDate} />
+          <DateInput name="birthDate" onChange={setBirthDate} />
         </Field>
         <Field label="Sexe">
           <select name="sex">
@@ -2357,41 +2732,42 @@ function CatForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
             <option value="M">Mâle</option>
           </select>
         </Field>
-        <Field label="Profil automatique">
-          <select
-            value={specialNeeds ? "SPECIAL_NEEDS" : "AUTO"}
-            onChange={(event) => setSpecialNeeds(event.target.value === "SPECIAL_NEEDS")}
-          >
-            <option value="AUTO">{PROFILE_LABEL[automaticProfile]} · selon l’âge</option>
-            <option value="SPECIAL_NEEDS">Besoins particuliers</option>
+        <Field label="Catégorie d’âge">
+          <select value={profileChoice} onChange={(event) => setProfileChoice(event.target.value)}>
+            {definition.deriveProfile && (
+              <option value="AUTO">
+                Selon l’âge ·{" "}
+                {definition.profiles.find((profile) => profile.id === automaticProfile)?.label}
+              </option>
+            )}
+            {definition.profiles
+              .filter((profile) => profile.id !== "SPECIAL_NEEDS")
+              .map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.label}
+                </option>
+              ))}
           </select>
         </Field>
-        <Field label="Stérilisation">
-          <select name="sterilizationStatus">
-            <option value="UNKNOWN">Non renseignée</option>
-            <option value="TODO">À faire</option>
-            <option value="DONE">Faite</option>
-          </select>
-        </Field>
-        <Field label="Adoption">
-          <select name="adoptionEligibility">
-            <option value="ELIGIBLE">Adoptable</option>
-            <option value="ON_HOLD">En attente</option>
-            <option value="INELIGIBLE">Non adoptable</option>
-          </select>
-        </Field>
-        <Field label="Motif éventuel">
-          <input name="adoptionBlockedReason" />
-        </Field>
+        {definition.careCategories.includes("STERILISATION") && (
+          <Field label="Stérilisation">
+            <select name="sterilizationStatus">
+              <option value="UNKNOWN">Non renseignée</option>
+              <option value="TODO">À faire</option>
+              <option value="DONE">Faite</option>
+            </select>
+          </Field>
+        )}
+        <AdoptabilityFields value={adoptionEligibility} onChange={setAdoptionEligibility} />
         <Field label="Date d'arrivée *">
-          <FrenchDateInput name="intakeDate" defaultValue={localToday()} required />
+          <DateInput name="intakeDate" defaultValue={localToday()} required />
         </Field>
         <Field label="Notes" wide>
           <textarea name="notes" rows={2} />
         </Field>
-        <div className="form-actions">
-          <button className="button primary">Enregistrer</button>
-        </div>
+        <FormActions>
+          <Button variant="primary">Enregistrer</Button>
+        </FormActions>
       </form>
     </Panel>
   );
@@ -2401,22 +2777,21 @@ function FamiliesPage({ snapshot, run }: PageProps) {
   const [showForm, setShowForm] = useState(false);
   const [showPlacement, setShowPlacement] = useState(false);
   const [holidayFamilyId, setHolidayFamilyId] = useState("");
+  const [holidayEditor, setHolidayEditor] = useState("");
   return (
     <div className="page-stack">
-      <div className="section-heading">
-        <p>
-          {snapshot.families.length} familles d'accueil · accueil et capacité sur une seule page
-        </p>
+      <PageHeader>
+        <p>{snapshot.families.length} familles d'accueil</p>
         <div className="heading-actions">
-          <button className="button secondary" onClick={() => setShowPlacement(!showPlacement)}>
-            {showPlacement ? "Fermer l'accueil" : "+ Ajouter un chat à une famille"}
-          </button>
-          <button className="button primary" onClick={() => setShowForm(!showForm)}>
+          <Button variant="secondary" onClick={() => setShowPlacement(!showPlacement)}>
+            {showPlacement ? "Fermer l'accueil" : "+ Ajouter un animal à une famille"}
+          </Button>
+          <Button variant="primary" onClick={() => setShowForm(!showForm)}>
             {showForm ? "Fermer" : "+ Nouvelle famille"}
-          </button>
+          </Button>
         </div>
-      </div>
-      {showForm && <FamilyForm run={run} done={() => setShowForm(false)} />}{" "}
+      </PageHeader>
+      {showForm && <FamilyForm snapshot={snapshot} run={run} done={() => setShowForm(false)} />}{" "}
       {showPlacement && <PlacementsPage snapshot={snapshot} run={run} />}
       {holidayFamilyId && (
         <HolidayTransfers
@@ -2428,7 +2803,7 @@ function FamiliesPage({ snapshot, run }: PageProps) {
       )}
       <div className="family-grid">
         {snapshot.families.map((family) => {
-          const cats = snapshot.catViews.filter((cat) => cat.currentFamilyId === family.id);
+          const animals = snapshot.animalViews.filter((cat) => cat.currentFamilyId === family.id);
           const holidays = snapshot.fosterFamilyHolidays.filter(
             (holiday) => holiday.familyId === family.id,
           );
@@ -2441,74 +2816,104 @@ function FamiliesPage({ snapshot, run }: PageProps) {
                     {family.firstName} {family.lastName}
                   </span>
                 </div>
-                <b className={cats.length >= family.maxCapacity ? "capacity-full" : ""}>
-                  {cats.length}/{family.maxCapacity}
+                <b className={animals.length >= family.maxCapacity ? "capacity-full" : ""}>
+                  {animals.length}/{family.maxCapacity}
                 </b>
               </div>
               <p>
                 {family.email || "Pas d'e-mail"} · {family.phone || "Pas de téléphone"}
               </p>
               <div className="tag-row">
-                {family.acceptedProfiles.map((profile) => (
-                  <span className="tag" key={profile}>
-                    {PROFILE_LABEL[profile]}
-                  </span>
-                ))}
+                {Object.entries(family.acceptanceRules ?? {}).flatMap(([speciesId, rule]) => {
+                  const species = registeredSpecies.find((item) => item.id === speciesId);
+                  if (!species || !rule) {
+                    return [];
+                  }
+                  return rule.profiles.map((profile) => (
+                    <Badge className="tag" key={`${speciesId}:${profile}`}>
+                      {snapshot.settings.enabledSpecies.length > 1
+                        ? `${species.label.plural} · `
+                        : ""}
+                      {species.profiles.find((item) => item.id === profile)?.label ?? profile}
+                    </Badge>
+                  ));
+                })}
               </div>
               <div className="resident-list">
-                <small>Chats actuels</small>
-                {cats.map((cat) => (
-                  <CatIdentity key={cat.id} cat={cat} />
+                <small>
+                  {snapshot.settings.enabledSpecies.length > 1
+                    ? "Animaux actuels"
+                    : `${registeredSpecies.find((species) => species.id === snapshot.settings.enabledSpecies[0])?.label.plural} actuels`}
+                </small>
+                {animals.map((cat) => (
+                  <AnimalIdentity key={cat.id} cat={cat} />
                 ))}
-                {!cats.length && <strong>Aucun</strong>}
+                {!animals.length && <strong>Aucun</strong>}
               </div>
               {holidays.map((holiday) => (
                 <div className="holiday" key={holiday.id}>
                   <span>
                     Indisponible {formatDate(holiday.startDate)}–{formatDate(holiday.endDate)}
                   </span>
-                  {cats.length > 0 && (
-                    <button className="button tiny" onClick={() => setHolidayFamilyId(family.id)}>
-                      Déplacer les chats
-                    </button>
+                  {animals.length > 0 && (
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      onClick={() => setHolidayFamilyId(family.id)}
+                    >
+                      Déplacer les animaux
+                    </Button>
                   )}
                   {holiday.endDate <= localToday() && (
-                    <button className="button tiny" onClick={() => setHolidayFamilyId(family.id)}>
-                      Chats à faire revenir
-                    </button>
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      onClick={() => setHolidayFamilyId(family.id)}
+                    >
+                      Animaux à faire revenir
+                    </Button>
                   )}
                 </div>
               ))}
-              <button
-                className="text-button"
-                onClick={() => {
-                  const startDate = window.prompt(
-                    "Début des vacances (JJ/MM/AAAA)",
-                    formatDate(localToday()),
-                  );
-                  if (!startDate) {
-                    return;
-                  }
-                  const endDate = window.prompt("Fin des vacances (JJ/MM/AAAA)", startDate);
-                  const startIso = dateFromFrench(startDate);
-                  const endIso = endDate ? dateFromFrench(endDate) : "";
-                  if (startIso && endIso) {
+              <Button
+                variant="text"
+                onClick={() => setHolidayEditor(holidayEditor === family.id ? "" : family.id)}
+              >
+                + Ajouter une indisponibilité
+              </Button>
+              {holidayEditor === family.id && (
+                <form
+                  className="stack-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const data = new FormData(event.currentTarget);
                     void run(
                       () =>
                         window.catApp.addFamilyHoliday({
                           familyId: family.id,
-                          startDate: startIso,
-                          endDate: endIso,
+                          startDate: String(data.get("startDate")),
+                          endDate: String(data.get("endDate")),
                         }),
                       "Indisponibilité ajoutée.",
-                    );
-                  } else if (endDate) {
-                    window.alert("Saisissez les dates au format JJ/MM/AAAA.");
-                  }
-                }}
-              >
-                + Ajouter une indisponibilité
-              </button>
+                    ).then(() => setHolidayEditor(""));
+                  }}
+                >
+                  <Field label="Début des vacances *">
+                    <DateInput name="startDate" defaultValue={localToday()} required />
+                  </Field>
+                  <Field label="Fin des vacances *">
+                    <DateInput name="endDate" defaultValue={localToday()} required />
+                  </Field>
+                  <FormActions>
+                    <Button type="button" onClick={() => setHolidayEditor("")}>
+                      Annuler
+                    </Button>
+                    <Button type="submit" variant="primary">
+                      Enregistrer
+                    </Button>
+                  </FormActions>
+                </form>
+              )}
             </article>
           );
         })}
@@ -2525,7 +2930,7 @@ function HolidayTransfers({
 }: PageProps & { familyId: string; close: () => void }) {
   const family = snapshot.families.find((candidate) => candidate.id === familyId)!;
   const holidays = snapshot.fosterFamilyHolidays.filter((holiday) => holiday.familyId === familyId);
-  const current = snapshot.catViews.filter((cat) => cat.currentFamilyId === familyId);
+  const current = snapshot.animalViews.filter((cat) => cat.currentFamilyId === familyId);
   const returningIds = new Set(
     snapshot.fosterPlacements
       .filter(
@@ -2537,20 +2942,20 @@ function HolidayTransfers({
               placement.endDate >= holiday.startDate && placement.endDate <= holiday.endDate,
           ),
       )
-      .map((placement) => placement.catId),
+      .map((placement) => placement.animalId),
   );
-  const returning = snapshot.catViews.filter(
+  const returning = snapshot.animalViews.filter(
     (cat) =>
       returningIds.has(cat.id) &&
       cat.currentFamilyId !== familyId &&
       !["ADOPTED", "LOST", "DECEASED"].includes(cat.status),
   );
-  const move = async (catId: string, targetId: string, date: string) => {
+  const move = async (animalId: string, targetId: string, date: string) => {
     if (!targetId) {
       return;
     }
     const input = {
-      catId,
+      animalId,
       familyId: targetId,
       startDate: date,
       notes: `Déplacement lié à l'indisponibilité de ${family.label}`,
@@ -2570,20 +2975,20 @@ function HolidayTransfers({
           overrideWarnings: assessment.warnings.length > 0,
           overrideReason,
         }),
-      "Chat déplacé vers sa nouvelle famille.",
+      "Animal déplacé vers sa nouvelle famille.",
     );
   };
   return (
     <Panel
       title={`Organiser les mouvements · ${family.label}`}
       action={
-        <button className="text-button" onClick={close}>
+        <Button variant="text" onClick={close}>
           Fermer
-        </button>
+        </Button>
       }
     >
       <p className="panel-intro">
-        Déplacez les chats avant l'indisponibilité, puis affichez ceux qui peuvent revenir lorsque
+        Déplacez les animaux avant l'indisponibilité, puis affichez ceux qui peuvent revenir lorsque
         la période est terminée.
       </p>
       <div className="transfer-list">
@@ -2608,7 +3013,7 @@ function HolidayTransfers({
           />
         ))}
         {!current.length && !returning.length && (
-          <Empty text="Aucun chat à déplacer ou à faire revenir." />
+          <Empty text="Aucun animal à déplacer ou à faire revenir." />
         )}
       </div>
     </Panel>
@@ -2622,16 +3027,16 @@ function TransferRow({
   action,
   onMove,
 }: {
-  cat: AppSnapshot["catViews"][number];
+  cat: AppSnapshot["animalViews"][number];
   families: AppSnapshot["families"];
   date: string;
   action: string;
-  onMove: (catId: string, familyId: string, date: string) => Promise<void>;
+  onMove: (animalId: string, familyId: string, date: string) => Promise<void>;
 }) {
   const [familyId, setFamilyId] = useState(families[0]?.id ?? "");
   return (
     <div className="transfer-row">
-      <CatIdentity cat={cat} />
+      <AnimalIdentity cat={cat} />
       <select value={familyId} onChange={(event) => setFamilyId(event.target.value)}>
         {families.map((family) => (
           <option value={family.id} key={family.id}>
@@ -2639,14 +3044,22 @@ function TransferRow({
           </option>
         ))}
       </select>
-      <button className="button tiny" onClick={() => void onMove(cat.id, familyId, date)}>
+      <Button variant="secondary" size="small" onClick={() => void onMove(cat.id, familyId, date)}>
         {action}
-      </button>
+      </Button>
     </div>
   );
 }
 
-function FamilyForm({ run, done }: { run: PageProps["run"]; done: () => void }) {
+function FamilyForm({
+  snapshot,
+  run,
+  done,
+}: {
+  snapshot: AppSnapshot;
+  run: PageProps["run"];
+  done: () => void;
+}) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -2661,7 +3074,23 @@ function FamilyForm({ run, done }: { run: PageProps["run"]; done: () => void }) 
           phone: String(data.get("phone")),
           address: String(data.get("address")),
           maxCapacity: Number(data.get("maxCapacity")),
-          acceptedProfiles: data.getAll("profiles") as CatProfile[],
+          acceptanceRules: Object.fromEntries(
+            snapshot.settings.enabledSpecies.map((speciesId) => [
+              speciesId,
+              {
+                profiles: data.getAll("profiles").flatMap((entry) => {
+                  if (typeof entry !== "string") {
+                    return [];
+                  }
+                  const [species, profile] = entry.split(":");
+                  const supported = registeredSpecies
+                    .find((item) => item.id === speciesId)
+                    ?.profiles.some((item) => item.id === profile);
+                  return species === speciesId && supported ? [profile as AnimalProfile] : [];
+                }),
+              },
+            ]),
+          ),
           notes: String(data.get("notes")),
         }),
       "Famille d'accueil enregistrée.",
@@ -2671,7 +3100,7 @@ function FamilyForm({ run, done }: { run: PageProps["run"]; done: () => void }) 
     <Panel title="Nouvelle famille d'accueil">
       <form className="form-grid" onSubmit={submit}>
         <Field label="Nom d'usage">
-          <input name="label" placeholder="Ex. Maison des chatons" />
+          <input name="label" placeholder="Ex. Famille des jeunes animaux" />
         </Field>
         <Field label="Prénom">
           <input name="firstName" />
@@ -2691,39 +3120,54 @@ function FamilyForm({ run, done }: { run: PageProps["run"]; done: () => void }) 
         <Field label="Adresse" wide>
           <input name="address" />
         </Field>
-        <Field label="Profils acceptés *" wide>
+        <FieldGroup
+          label={
+            snapshot.settings.enabledSpecies.length > 1
+              ? "Espèces et profils acceptés *"
+              : "Profils acceptés *"
+          }
+          wide
+        >
           <div className="checks profile-checks">
-            {ALL_PROFILES.map((profile) => (
-              <label key={profile}>
-                <input
+            {snapshot.settings.enabledSpecies.flatMap((speciesId) => {
+              const species = registeredSpecies.find((item) => item.id === speciesId)!;
+              return species.profiles.map((profile) => (
+                <Checkbox
+                  key={`${speciesId}:${profile.id}`}
                   name="profiles"
-                  type="checkbox"
-                  value={profile}
-                  defaultChecked={profile !== "BOTTLE_KITTEN"}
-                />
-                {PROFILE_LABEL[profile]}
-              </label>
-            ))}
+                  value={`${speciesId}:${profile.id}`}
+                  defaultChecked={profile.id !== "BOTTLE_KITTEN"}
+                >
+                  {snapshot.settings.enabledSpecies.length > 1 ? `${species.label.plural} · ` : ""}
+                  {profile.label}
+                </Checkbox>
+              ));
+            })}
           </div>
-        </Field>
+        </FieldGroup>
         <Field label="Notes" wide>
           <textarea name="notes" rows={2} />
         </Field>
-        <div className="form-actions">
-          <button className="button primary">Enregistrer</button>
-        </div>
+        <FormActions>
+          <Button variant="primary">Enregistrer</Button>
+        </FormActions>
       </form>
     </Panel>
   );
 }
 
 function PlacementsPage({ snapshot, run }: PageProps) {
-  const candidates = snapshot.catViews.filter((cat) =>
+  const candidates = snapshot.animalViews.filter((cat) =>
     ["FOSTERED", "AT_REFUGE"].includes(cat.status),
   );
-  const [catId, setCatId] = useState("");
+  const [speciesFilter, setSpeciesFilter] = useState<SpeciesId | "ALL">("ALL");
+  const visibleCandidates =
+    speciesFilter === "ALL"
+      ? candidates
+      : candidates.filter((animal) => animal.speciesId === speciesFilter);
+  const [animalId, setAnimalId] = useState("");
   const [showFull, setShowFull] = useState(false);
-  const selectedCat = snapshot.cats.find((cat) => cat.id === catId);
+  const selectedAnimal = snapshot.animals.find((cat) => cat.id === animalId);
   const occupancy = (familyId: string) =>
     snapshot.fosterPlacements.filter(
       (placement) => placement.familyId === familyId && !placement.endDate,
@@ -2736,7 +3180,7 @@ function PlacementsPage({ snapshot, run }: PageProps) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const input = {
-      catId: String(data.get("catId")),
+      animalId: String(data.get("animalId")),
       familyId: String(data.get("familyId")),
       startDate: String(data.get("startDate")),
       notes: String(data.get("notes")),
@@ -2748,7 +3192,9 @@ function PlacementsPage({ snapshot, run }: PageProps) {
       }
       let overrideReason = "";
       if (assessment.warnings.length) {
-        if (!window.confirm(`${assessment.warnings.join("\n")}\n\nPlacer quand même ce chat ?`)) {
+        if (
+          !window.confirm(`${assessment.warnings.join("\n")}\n\nPlacer quand même cet animal ?`)
+        ) {
           return;
         }
         overrideReason = window.prompt("Motif obligatoire de la dérogation") ?? "";
@@ -2775,37 +3221,44 @@ function PlacementsPage({ snapshot, run }: PageProps) {
   return (
     <div className="page-stack">
       <div className="two-column">
-        <Panel title="Ajouter un chat à une famille">
+        <Panel title="Ajouter un animal à une famille">
           <form className="stack-form" onSubmit={submit}>
-            <Field label="Chat *">
+            <Field label="Animal *">
               <select
-                name="catId"
+                name="animalId"
                 required
-                value={catId}
-                onChange={(event) => setCatId(event.target.value)}
+                value={animalId}
+                onChange={(event) => setAnimalId(event.target.value)}
               >
-                <option value="">Choisir un chat</option>
-                {candidates.map((cat) => (
+                <option value="">Choisir un animal</option>
+                {visibleCandidates.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name}
                   </option>
                 ))}
               </select>
             </Field>
-            <label className="toggle-line">
-              <input
-                type="checkbox"
-                checked={showFull}
-                onChange={(event) => setShowFull(event.target.checked)}
+            {snapshot.settings.enabledSpecies.length > 1 && (
+              <SpeciesFilter
+                enabledSpecies={snapshot.settings.enabledSpecies}
+                value={speciesFilter}
+                onChange={setSpeciesFilter}
               />
+            )}
+            <Checkbox
+              className="toggle-line"
+              checked={showFull}
+              onChange={(event) => setShowFull(event.target.checked)}
+            >
               Afficher aussi les familles complètes
-            </label>
+            </Checkbox>
             <Field label="Famille d'accueil *">
               <select name="familyId" required defaultValue="">
                 <option value="">Choisir une famille</option>
                 {visibleFamilies.map((family) => {
+                  const rule = selectedAnimal && family.acceptanceRules?.[selectedAnimal.speciesId];
                   const mismatch =
-                    selectedCat && !family.acceptedProfiles.includes(selectedCat.profile);
+                    selectedAnimal && (!rule || !rule.profiles.includes(selectedAnimal.profile));
                   return (
                     <option key={family.id} value={family.id}>
                       {family.label} · {occupancy(family.id)}/{family.maxCapacity}
@@ -2816,12 +3269,14 @@ function PlacementsPage({ snapshot, run }: PageProps) {
               </select>
             </Field>
             <Field label="Date *">
-              <FrenchDateInput name="startDate" defaultValue={localToday()} required />
+              <DateInput name="startDate" defaultValue={localToday()} required />
             </Field>
             <Field label="Notes">
               <textarea name="notes" rows={2} />
             </Field>
-            <button className="button primary full">Commencer l'accueil</button>
+            <Button variant="primary" fullWidth>
+              Commencer l'accueil
+            </Button>
           </form>
         </Panel>
         <Panel title="Règles appliquées">
@@ -2833,7 +3288,7 @@ function PlacementsPage({ snapshot, run }: PageProps) {
           </ul>
         </Panel>
       </div>
-      <Panel title={`Chats par famille · ${active.length}`}>
+      <Panel title={`Animaux par famille · ${active.length}`}>
         <div className="location-grid">
           {groups.map(({ family, placements }) => (
             <article className="location-card" key={family.id}>
@@ -2845,13 +3300,16 @@ function PlacementsPage({ snapshot, run }: PageProps) {
               </div>
               <div className="resident-records">
                 {placements.map((placement) => {
-                  const cat = snapshot.cats.find((candidate) => candidate.id === placement.catId)!;
+                  const cat = snapshot.animals.find(
+                    (candidate) => candidate.id === placement.animalId,
+                  )!;
                   return (
                     <div key={placement.id}>
-                      <CatIdentity cat={cat} />
+                      <AnimalIdentity cat={cat} />
                       <small>depuis {formatDate(placement.startDate)}</small>
-                      <button
-                        className="button tiny"
+                      <Button
+                        variant="secondary"
+                        size="small"
                         onClick={() =>
                           void run(
                             () =>
@@ -2865,7 +3323,7 @@ function PlacementsPage({ snapshot, run }: PageProps) {
                         }
                       >
                         Terminer
-                      </button>
+                      </Button>
                     </div>
                   );
                 })}
@@ -2882,12 +3340,12 @@ function AdoptersPage({ snapshot, run }: PageProps) {
   const [showForm, setShowForm] = useState(false);
   return (
     <div className="page-stack">
-      <div className="section-heading">
+      <PageHeader>
         <p>{snapshot.adopters.length} adoptants définitifs</p>
-        <button className="button primary" onClick={() => setShowForm(!showForm)}>
+        <Button variant="primary" onClick={() => setShowForm(!showForm)}>
           {showForm ? "Fermer" : "+ Nouvel adoptant"}
-        </button>
-      </div>
+        </Button>
+      </PageHeader>
       {showForm && <AdopterForm run={run} done={() => setShowForm(false)} />}
       <Panel title="Répertoire des adoptants">
         <div className="table-wrap">
@@ -2897,7 +3355,7 @@ function AdoptersPage({ snapshot, run }: PageProps) {
                 <th>Adoptant</th>
                 <th>Coordonnées</th>
                 <th>Adresse</th>
-                <th>Chats adoptés</th>
+                <th>Animaux adoptés</th>
                 <th>Retours</th>
               </tr>
             </thead>
@@ -2918,10 +3376,10 @@ function AdoptersPage({ snapshot, run }: PageProps) {
                     <td>{adopter.address || "—"}</td>
                     <td>
                       {adoptions
-                        .map((item) => snapshot.cats.find((cat) => cat.id === item.catId))
-                        .filter((cat): cat is AppSnapshot["cats"][number] => Boolean(cat))
+                        .map((item) => snapshot.animals.find((cat) => cat.id === item.animalId))
+                        .filter((cat): cat is AppSnapshot["animals"][number] => Boolean(cat))
                         .map((cat) => (
-                          <CatIdentity key={cat.id} cat={cat} />
+                          <AnimalIdentity key={cat.id} cat={cat} />
                         ))}
                       {!adoptions.length && "—"}
                     </td>
@@ -2983,32 +3441,37 @@ function AdopterForm({ run, done }: { run: PageProps["run"]; done: () => void })
         <Field label="Notes" wide>
           <textarea name="notes" rows={2} />
         </Field>
-        <div className="form-actions">
-          <button className="button primary">Enregistrer</button>
-        </div>
+        <FormActions>
+          <Button variant="primary">Enregistrer</Button>
+        </FormActions>
       </form>
     </Panel>
   );
 }
 
 function AdoptionsPage({ snapshot, run }: PageProps) {
-  const eligibleCats = snapshot.catViews.filter((cat) =>
+  const eligibleAnimals = snapshot.animalViews.filter((cat) =>
     ["FOSTERED", "AT_REFUGE"].includes(cat.status),
   );
-  const [selectedCats, setSelectedCats] = useState<string[]>([]);
-  const [catQuery, setCatQuery] = useState("");
+  const [selectedAnimals, setSelectedAnimals] = useState<string[]>([]);
+  const [catQuery, setAnimalQuery] = useState("");
+  const [speciesFilter, setSpeciesFilter] = useState<SpeciesId | "ALL">("ALL");
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [showAdoptionForm, setShowAdoptionForm] = useState(false);
-  const [sortMode, setSortMode] = useState<"date" | "cat">("date");
+  const [sortMode, setSortMode] = useState<"date" | "animal">("date");
   const [showAdopters, setShowAdopters] = useState(false);
   const [fosterTemplateId, setFosterTemplateId] = useState("");
   const template = snapshot.families.find((family) => family.id === fosterTemplateId);
-  const catSearch = searchAdoptionCats(eligibleCats, snapshot.families, catQuery, 10);
+  const adoptionCandidates =
+    speciesFilter === "ALL"
+      ? eligibleAnimals
+      : eligibleAnimals.filter((animal) => animal.speciesId === speciesFilter);
+  const catSearch = searchAdoptionAnimals(adoptionCandidates, snapshot.families, catQuery, 10);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const selectedWarnings = selectedCats.flatMap((id) => {
-      const cat = snapshot.cats.find((candidate) => candidate.id === id)!;
+    const selectedWarnings = selectedAnimals.flatMap((id) => {
+      const cat = snapshot.animals.find((candidate) => candidate.id === id)!;
       return cat.adoptionEligibility === "ELIGIBLE"
         ? []
         : [`${cat.name}: ${cat.adoptionBlockedReason || "adoption non autorisée"}`];
@@ -3022,7 +3485,7 @@ function AdoptionsPage({ snapshot, run }: PageProps) {
       return;
     }
     const adoption = {
-      catIds: selectedCats,
+      animalIds: selectedAnimals,
       adoptionDate: String(data.get("adoptionDate")),
       partner: String(data.get("partner")),
       adoptionDayId: String(data.get("adoptionDayId")),
@@ -3048,79 +3511,87 @@ function AdoptionsPage({ snapshot, run }: PageProps) {
         : () =>
             window.catApp.createAdoption({ ...adoption, adopterId: String(data.get("adopterId")) });
     void run(operation, "Adoption et contact définitif enregistrés.").then(() =>
-      setSelectedCats([]),
+      setSelectedAnimals([]),
     );
   };
   const all = [...snapshot.adoptions].sort((a, b) =>
     sortMode === "date"
       ? b.adoptionDate.localeCompare(a.adoptionDate)
-      : (snapshot.cats.find((cat) => cat.id === a.catId)?.name ?? "").localeCompare(
-          snapshot.cats.find((cat) => cat.id === b.catId)?.name ?? "",
+      : (snapshot.animals.find((cat) => cat.id === a.animalId)?.name ?? "").localeCompare(
+          snapshot.animals.find((cat) => cat.id === b.animalId)?.name ?? "",
           "fr",
         ) || b.adoptionDate.localeCompare(a.adoptionDate),
   );
   return (
     <div className="page-stack">
-      <div className="section-heading">
+      <PageHeader>
         <p>Adoptions et contacts adoptants réunis</p>
         <div className="heading-actions">
-          <button className="button secondary" onClick={() => setShowAdopters(!showAdopters)}>
+          <Button variant="secondary" onClick={() => setShowAdopters(!showAdopters)}>
             {showAdopters ? "Masquer les adoptants" : `Adoptants (${snapshot.adopters.length})`}
-          </button>
-          <button className="button primary" onClick={() => setShowAdoptionForm(!showAdoptionForm)}>
-            {showAdoptionForm ? "Fermer" : "+ Faire adopter un chat"}
-          </button>
+          </Button>
+          <Button variant="primary" onClick={() => setShowAdoptionForm(!showAdoptionForm)}>
+            {showAdoptionForm ? "Fermer" : "+ Faire adopter un animal"}
+          </Button>
         </div>
-      </div>
+      </PageHeader>
       {showAdopters && <AdoptersPage snapshot={snapshot} run={run} />}{" "}
       {showAdoptionForm && (
         <Panel title="Enregistrer une adoption">
           <form className="adoption-form" onSubmit={submit}>
             <div className="stack-form">
-              <Field label="Rechercher les chats *">
-                <div className="cat-picker">
-                  <div className="selected-cats">
-                    {selectedCats.map((id) => (
-                      <button
+              <FieldGroup label="Rechercher les animaux *">
+                {snapshot.settings.enabledSpecies.length > 1 && (
+                  <SpeciesFilter
+                    enabledSpecies={snapshot.settings.enabledSpecies}
+                    value={speciesFilter}
+                    onChange={setSpeciesFilter}
+                  />
+                )}
+                <div className="picker">
+                  <div className="selected-items">
+                    {selectedAnimals.map((id) => (
+                      <Button
+                        className="selection-chip"
+                        variant="secondary"
+                        size="small"
                         type="button"
                         key={id}
                         onClick={() =>
-                          setSelectedCats(selectedCats.filter((value) => value !== id))
+                          setSelectedAnimals(selectedAnimals.filter((value) => value !== id))
                         }
                       >
-                        {snapshot.cats.find((cat) => cat.id === id)?.name} ×
-                      </button>
+                        {snapshot.animals.find((cat) => cat.id === id)?.name} ×
+                      </Button>
                     ))}
                   </div>
-                  <div className="cat-search">
-                    <span>⌕</span>
-                    <input
-                      value={catQuery}
-                      onChange={(event) => setCatQuery(event.target.value)}
-                      placeholder="Nom, ICAD ou famille…"
-                    />
-                    <small>{catSearch.matches.length} résultat(s)</small>
-                  </div>
+                  <SearchField
+                    label="Rechercher un animal"
+                    value={catQuery}
+                    onChange={(event) => setAnimalQuery(event.target.value)}
+                    placeholder={`${snapshot.animals.some((animal) => registeredSpecies.find((species) => species.id === animal.speciesId)?.identificationSchemes.some((scheme) => scheme.id === "ICAD")) ? "Nom, ICAD ou famille…" : "Nom ou famille…"}`}
+                    trailing={<small>{catSearch.matches.length} résultat(s)</small>}
+                  />
                   <div className="choice-list">
                     {catSearch.visible.map((cat) => (
-                      <label key={cat.id} className={selectedCats.includes(cat.id) ? "chosen" : ""}>
-                        <input
-                          type="checkbox"
-                          checked={selectedCats.includes(cat.id)}
-                          onChange={(event) =>
-                            setSelectedCats(
-                              event.target.checked
-                                ? [...selectedCats, cat.id]
-                                : selectedCats.filter((id) => id !== cat.id),
-                            )
-                          }
-                        />
+                      <Checkbox
+                        key={cat.id}
+                        className={selectedAnimals.includes(cat.id) ? "chosen" : ""}
+                        checked={selectedAnimals.includes(cat.id)}
+                        onChange={(event) =>
+                          setSelectedAnimals(
+                            event.target.checked
+                              ? [...selectedAnimals, cat.id]
+                              : selectedAnimals.filter((id) => id !== cat.id),
+                          )
+                        }
+                      >
                         <span className="mini-avatar">{cat.name[0]}</span>
-                        <CatIdentity cat={cat} />
-                        {catWarnings(cat).length > 0 && (
-                          <b title={catWarnings(cat).join(" · ")}>⚠</b>
+                        <AnimalIdentity cat={cat} />
+                        {animalWarnings(cat).length > 0 && (
+                          <b title={animalWarnings(cat).join(" · ")}>⚠</b>
                         )}
-                      </label>
+                      </Checkbox>
                     ))}
                   </div>
                   {catSearch.matches.length > 10 && (
@@ -3129,7 +3600,7 @@ function AdoptionsPage({ snapshot, run }: PageProps) {
                     </small>
                   )}
                 </div>
-              </Field>
+              </FieldGroup>
             </div>
             <div className="stack-form">
               <div className="adopter-tabs">
@@ -3218,7 +3689,7 @@ function AdoptionsPage({ snapshot, run }: PageProps) {
               )}
               <div className="inline-fields">
                 <Field label="Date *">
-                  <FrenchDateInput name="adoptionDate" defaultValue={localToday()} required />
+                  <DateInput name="adoptionDate" defaultValue={localToday()} required />
                 </Field>
                 <Field label="Journée associée">
                   <select name="adoptionDayId">
@@ -3244,9 +3715,9 @@ function AdoptionsPage({ snapshot, run }: PageProps) {
               <Field label="Notes">
                 <textarea name="notes" rows={2} />
               </Field>
-              <button className="button primary full" disabled={!selectedCats.length}>
+              <Button variant="primary" fullWidth disabled={!selectedAnimals.length}>
                 Confirmer l'adoption
-              </button>
+              </Button>
             </div>
           </form>
         </Panel>
@@ -3254,14 +3725,16 @@ function AdoptionsPage({ snapshot, run }: PageProps) {
       <Panel
         title={`Suivi des adoptions · ${all.length}`}
         action={
-          <label className="inline-control">
+          <label className="inline-control" data-density="compact">
             Lister par{" "}
             <select
               value={sortMode}
-              onChange={(event) => setSortMode(event.target.value as "date" | "cat")}
+              onChange={(event) =>
+                setSortMode(optionValue(event.target.value, ADOPTION_SORT_MODES, "date"))
+              }
             >
               <option value="date">dernière date d'adoption</option>
-              <option value="cat">chat</option>
+              <option value="animal">animal</option>
             </select>
           </label>
         }
@@ -3286,8 +3759,9 @@ function AdoptionTable({
       <table className="adoption-table">
         <thead>
           <tr>
-            <th>Chat</th>
-            <th>État du chat</th>
+            <th>Animal</th>
+            <SpeciesTableHeader enabledSpecies={snapshot.settings.enabledSpecies} />
+            <th>État de l'animal</th>
             <th>Adoptant définitif</th>
             <th>Coordonnées</th>
             <th>Adoption</th>
@@ -3297,21 +3771,25 @@ function AdoptionTable({
         </thead>
         <tbody>
           {adoptions.map((adoption) => {
-            const cat = snapshot.cats.find((item) => item.id === adoption.catId)!;
+            const cat = snapshot.animals.find((item) => item.id === adoption.animalId)!;
             const adopter = snapshot.adopters.find((item) => item.id === adoption.adopterId);
-            const warnings = catWarnings(cat);
+            const warnings = animalWarnings(cat);
             return (
               <tr key={adoption.id}>
                 <td>
-                  <CatIdentity cat={cat} />
+                  <AnimalIdentity cat={cat} />
                 </td>
+                <SpeciesTableCell
+                  enabledSpecies={snapshot.settings.enabledSpecies}
+                  speciesId={cat.speciesId}
+                />
                 <td>
                   {warnings.length ? (
-                    <span className="warning-badge" title={warnings.join(" · ")}>
+                    <Badge className="warning-badge" title={warnings.join(" · ")}>
                       ⚠ {warnings.join(" · ")}
-                    </span>
+                    </Badge>
                   ) : (
-                    <span className="ok-badge">Dossier OK</span>
+                    <Badge className="ok-badge">Dossier OK</Badge>
                   )}
                 </td>
                 <td>
@@ -3327,21 +3805,24 @@ function AdoptionTable({
                   <span>{adoption.partner}</span>
                 </td>
                 <td>
-                  <span
+                  <Badge
                     className={`status ${adoption.status === "ACTIVE" ? "adopted" : "returned"}`}
                   >
                     {adoption.status === "ACTIVE"
                       ? "Active"
                       : `Retour ${formatDate(adoption.endedAt)}`}
-                  </span>
+                  </Badge>
                 </td>
                 <td>
                   {adoption.status === "ACTIVE" && (
-                    <button
-                      className="button tiny danger"
+                    <Button
+                      variant="danger"
+                      size="small"
                       onClick={() => {
                         const notes = window.prompt("Motif du retour") ?? "";
-                        const toRefuge = window.confirm("Envoyer directement ce chat au refuge ?");
+                        const toRefuge = window.confirm(
+                          "Envoyer directement ce animal au refuge ?",
+                        );
                         void run(
                           () =>
                             window.catApp.returnAdoption({
@@ -3351,13 +3832,13 @@ function AdoptionTable({
                               refugeZoneId: toRefuge ? snapshot.refugeZones[0]?.id : undefined,
                             }),
                           toRefuge
-                            ? "Retour enregistré et chat envoyé au refuge."
+                            ? "Retour enregistré et animal envoyé au refuge."
                             : "Retour enregistré.",
                         );
                       }}
                     >
                       Retour
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
@@ -3387,14 +3868,14 @@ function AdoptionDaysPage({
       .getAdoptionDaySuggestions(selectedDayId)
       .then(setSuggestions)
       .catch((error) => setNotice({ kind: "error", text: errorMessage(error) }));
-  }, [selectedDayId, snapshot.adoptionDayCats.length]);
-  const add = (catIds: string[]) =>
+  }, [selectedDayId, snapshot.adoptionDayAnimals.length]);
+  const add = (animalIds: string[]) =>
     void run(
-      () => window.catApp.addCatsToAdoptionDay({ adoptionDayId: selectedDayId, catIds }),
-      `${catIds.length} chat(s) ajouté(s) à l'événement.`,
+      () => window.catApp.addAnimalsToAdoptionDay({ adoptionDayId: selectedDayId, animalIds }),
+      `${animalIds.length} animal(aux) ajouté(s) à l'événement.`,
     );
   const selectedDay = snapshot.adoptionDays.find((day) => day.id === selectedDayId);
-  const registered = snapshot.adoptionDayCats.filter(
+  const registered = snapshot.adoptionDayAnimals.filter(
     (item) => item.adoptionDayId === selectedDayId && item.status !== "WITHDRAWN",
   );
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -3419,17 +3900,17 @@ function AdoptionDaysPage({
   };
   return (
     <div className="page-stack">
-      <div className="section-heading">
+      <PageHeader>
         <p>Événements, réservations et validations d'adoption</p>
         <div className="heading-actions">
-          <button className="button secondary" onClick={() => setShowPartners(!showPartners)}>
+          <Button variant="secondary" onClick={() => setShowPartners(!showPartners)}>
             Lieux partenaires
-          </button>
-          <button className="button primary" onClick={() => setShowForm(!showForm)}>
+          </Button>
+          <Button variant="primary" onClick={() => setShowForm(!showForm)}>
             {showForm ? "Fermer" : "+ Créer un événement"}
-          </button>
+          </Button>
         </div>
-      </div>
+      </PageHeader>
       {showPartners && <PartnerPlaces snapshot={snapshot} run={run} />}{" "}
       {showForm && (
         <Panel title="Nouvelle journée / fête d'adoption">
@@ -3445,10 +3926,10 @@ function AdoptionDaysPage({
               </select>
             </Field>
             <Field label="Début *">
-              <FrenchDateInput name="startDate" required />
+              <DateInput name="startDate" required />
             </Field>
             <Field label="Fin *">
-              <FrenchDateInput name="endDate" required />
+              <DateInput name="endDate" required />
             </Field>
             <Field label="Emplacement précis">
               <input name="location" />
@@ -3456,9 +3937,9 @@ function AdoptionDaysPage({
             <Field label="Notes">
               <input name="notes" />
             </Field>
-            <div className="form-actions">
-              <button className="button primary">Créer sous le nom « Partenaire · dates »</button>
-            </div>
+            <FormActions>
+              <Button variant="primary">Créer sous le nom « Partenaire · dates »</Button>
+            </FormActions>
           </form>
         </Panel>
       )}
@@ -3490,7 +3971,7 @@ function AdoptionDaysPage({
             </div>
             <strong>
               {registered.length}
-              <small>chats inscrits</small>
+              <small>animaux inscrits</small>
             </strong>
           </section>
           <div className="two-column event-columns">
@@ -3501,27 +3982,28 @@ function AdoptionDaysPage({
                     <header>
                       <div>
                         <LocationHeading group={group} snapshot={snapshot} />
-                        <span>{group.cats.length} chats adoptables</span>
+                        <span>{group.animals.length} animaux adoptables</span>
                       </div>
-                      <button
-                        className="button tiny"
-                        onClick={() => add(group.cats.map((cat) => cat.catId))}
+                      <Button
+                        variant="secondary"
+                        size="small"
+                        onClick={() => add(group.animals.map((cat) => cat.animalId))}
                       >
                         + Tout le cheptel
-                      </button>
+                      </Button>
                     </header>
                     <div>
-                      {group.cats.map((item) => {
-                        const cat = snapshot.catViews.find(
-                          (candidate) => candidate.id === item.catId,
+                      {group.animals.map((item) => {
+                        const cat = snapshot.animalViews.find(
+                          (candidate) => candidate.id === item.animalId,
                         )!;
                         return (
                           <button
                             className="suggested-cat"
-                            key={item.catId}
-                            onClick={() => add([item.catId])}
+                            key={item.animalId}
+                            onClick={() => add([item.animalId])}
                           >
-                            <CatIdentity cat={cat} />
+                            <AnimalIdentity cat={cat} />
                             {item.warnings.length > 0 && <b title={item.warnings.join(" · ")}>⚠</b>}
                             <i>+</i>
                           </button>
@@ -3533,8 +4015,8 @@ function AdoptionDaysPage({
                 {!suggestions.length && <Empty text="Aucune autre suggestion adoptable." />}
               </div>
             </Panel>
-            <Panel title="Chats prévus et réservations">
-              <div className="registered-cats">
+            <Panel title="Animaux prévus et réservations">
+              <div className="registered-animals">
                 {registered.map((item) => (
                   <AdoptionDayRegistration
                     key={item.id}
@@ -3544,7 +4026,7 @@ function AdoptionDaysPage({
                     run={run}
                   />
                 ))}
-                {!registered.length && <Empty text="Ajoutez des chats depuis les suggestions." />}
+                {!registered.length && <Empty text="Ajoutez des animaux depuis les suggestions." />}
               </div>
             </Panel>
           </div>
@@ -3560,12 +4042,12 @@ function AdoptionDayRegistration({
   snapshot,
   run,
 }: {
-  registration: AppSnapshot["adoptionDayCats"][number];
+  registration: AppSnapshot["adoptionDayAnimals"][number];
   day: AppSnapshot["adoptionDays"][number];
   snapshot: AppSnapshot;
   run: PageProps["run"];
 }) {
-  const cat = snapshot.catViews.find((candidate) => candidate.id === registration.catId)!;
+  const cat = snapshot.animalViews.find((candidate) => candidate.id === registration.animalId)!;
   const [adopterId, setAdopterId] = useState(registration.adopterId || "");
   const bookedBy = snapshot.adopters.find((adopter) => adopter.id === registration.adopterId);
   const validatedAdopter =
@@ -3574,18 +4056,18 @@ function AdoptionDayRegistration({
       (adopter) =>
         adopter.id ===
         snapshot.adoptions.find(
-          (adoption) => adoption.catId === cat.id && adoption.adoptionDayId === day.id,
+          (adoption) => adoption.animalId === cat.id && adoption.adoptionDayId === day.id,
         )?.adopterId,
     );
   const reserve = () =>
     void run(
       () =>
-        window.catApp.bookCatForAdoption({
+        window.catApp.bookAnimalForAdoption({
           registrationId: registration.id,
           adopterId,
           bookedAt: localToday(),
         }),
-      "Chat réservé pour cette famille.",
+      "Animal réservé pour cette famille.",
     );
   const validate = () =>
     registration.adopterId
@@ -3600,7 +4082,7 @@ function AdoptionDayRegistration({
       : void run(
           () =>
             window.catApp.createAdoption({
-              catIds: [cat.id],
+              animalIds: [cat.id],
               adopterId,
               adoptionDate: localToday(),
               adoptionDayId: day.id,
@@ -3613,7 +4095,7 @@ function AdoptionDayRegistration({
       <div className="registration-row">
         <span className="mini-avatar">{cat.name[0]}</span>
         <div>
-          <CatIdentity cat={cat} />
+          <AnimalIdentity cat={cat} />
           <b className="booking-badge">
             ✓ Adoption validée{validatedAdopter ? ` · ${validatedAdopter.label}` : ""}
           </b>
@@ -3625,7 +4107,7 @@ function AdoptionDayRegistration({
     <div className="registration-row">
       <span className="mini-avatar">{cat.name[0]}</span>
       <div>
-        <CatIdentity cat={cat} />
+        <AnimalIdentity cat={cat} />
         <small>{cat.currentLocationLabel || STATUS_LABEL[cat.status]}</small>
         {bookedBy && (
           <b className="booking-badge">
@@ -3633,7 +4115,7 @@ function AdoptionDayRegistration({
           </b>
         )}
       </div>
-      <div className="registration-actions">
+      <div className="registration-actions" data-density="compact">
         <select value={adopterId} onChange={(event) => setAdopterId(event.target.value)}>
           <option value="">Choisir une famille adoptante</option>
           {snapshot.adopters.map((adopter) => (
@@ -3643,29 +4125,31 @@ function AdoptionDayRegistration({
           ))}
         </select>
         {!registration.adopterId && (
-          <button className="button tiny" disabled={!adopterId} onClick={reserve}>
+          <Button variant="secondary" size="small" disabled={!adopterId} onClick={reserve}>
             Réserver
-          </button>
+          </Button>
         )}
-        <button
-          className="button tiny primary"
+        <Button
+          variant="primary"
+          size="small"
           disabled={!adopterId && !registration.adopterId}
           onClick={validate}
         >
           {registration.adopterId ? "Confirmer la réservation" : "Valider l'adoption"}
-        </button>
-        <button
-          className="icon-button danger"
-          title="Retirer ce chat de la journée"
+        </Button>
+        <Button
+          variant="danger"
+          size="icon"
+          title="Retirer cet animal de la journée"
           onClick={() =>
             void run(
-              () => window.catApp.withdrawCatFromAdoptionDay(registration.id),
-              "Chat retiré de la journée d'adoption.",
+              () => window.catApp.withdrawAnimalFromAdoptionDay(registration.id),
+              "Animal retiré de la journée d'adoption.",
             )
           }
         >
           ×
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -3699,7 +4183,7 @@ function PartnerPlaces({ snapshot, run }: PageProps) {
           <Field label="Notes">
             <input name="notes" />
           </Field>
-          <button className="button primary">+ Ajouter le lieu</button>
+          <Button variant="primary">+ Ajouter le lieu</Button>
         </form>
         <div className="partner-list">
           {snapshot.partnerPlaces.map((place) => (
@@ -3708,8 +4192,9 @@ function PartnerPlaces({ snapshot, run }: PageProps) {
                 <strong>{place.name}</strong>
                 <span>{place.address || "Adresse non renseignée"}</span>
               </div>
-              <button
-                className="icon-button danger"
+              <Button
+                variant="danger"
+                size="icon"
                 title="Supprimer"
                 onClick={() => {
                   if (window.confirm(`Supprimer ${place.name} de la liste ?`)) {
@@ -3721,7 +4206,7 @@ function PartnerPlaces({ snapshot, run }: PageProps) {
                 }}
               >
                 ×
-              </button>
+              </Button>
             </article>
           ))}
           {!snapshot.partnerPlaces.length && <Empty text="Aucun lieu partenaire enregistré." />}
@@ -3732,16 +4217,16 @@ function PartnerPlaces({ snapshot, run }: PageProps) {
 }
 
 function RefugePage({ snapshot, run }: PageProps) {
-  const transferable = snapshot.catViews.filter(
+  const transferable = snapshot.animalViews.filter(
     (cat) => !["LOST", "DECEASED"].includes(cat.status),
   );
-  const activeStays = snapshot.catViews
+  const activeStays = snapshot.animalViews
     .filter((cat) => cat.status === "AT_REFUGE")
     .map(
       (cat) =>
-        snapshot.refugeStays.find((stay) => stay.catId === cat.id && !stay.endDate) ?? {
+        snapshot.refugeStays.find((stay) => stay.animalId === cat.id && !stay.endDate) ?? {
           id: `default-${cat.id}`,
-          catId: cat.id,
+          animalId: cat.id,
           zoneId: cat.currentRefugeZoneId || snapshot.refugeZones[0]?.id || "",
           startDate: cat.intakeDate,
           reason: "Présence au refuge",
@@ -3749,18 +4234,30 @@ function RefugePage({ snapshot, run }: PageProps) {
     );
   const [showMove, setShowMove] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [animalSpeciesFilter, setAnimalSpeciesFilter] = useState<SpeciesId | "ALL">("ALL");
+  const [moveAnimalId, setMoveAnimalId] = useState("");
+  const selectedMoveAnimal = snapshot.animals.find((animal) => animal.id === moveAnimalId);
+  const visibleTransferable = transferable.filter(
+    (animal) => animalSpeciesFilter === "ALL" || animal.speciesId === animalSpeciesFilter,
+  );
+  const compatibleZones = snapshot.refugeZones.filter(
+    (zone) =>
+      !selectedMoveAnimal ||
+      zone.allowedSpecies === null ||
+      zone.allowedSpecies.includes(selectedMoveAnimal.speciesId),
+  );
   const send = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     void run(
       () =>
         window.catApp.sendToRefuge({
-          catId: String(data.get("catId")),
+          animalId: String(data.get("animalId")),
           zoneId: String(data.get("zoneId")),
           date: String(data.get("date")),
           reason: String(data.get("reason")),
         }),
-      "Chat envoyé au refuge.",
+      "Animal envoyé au refuge.",
     );
   };
   return (
@@ -3769,37 +4266,52 @@ function RefugePage({ snapshot, run }: PageProps) {
         <div>
           <span>Zones du refuge</span>
           <h2>Le refuge</h2>
-          <p>Consultez directement chaque zone et les chats présents.</p>
+          <p>Consultez directement chaque zone et les animaux présents.</p>
         </div>
         <div className="refuge-actions">
-          <button className="button light" onClick={() => setShowMove(!showMove)}>
-            + Déplacer un chat
-          </button>
-          <button className="button ghost-light" onClick={() => setShowSettings(!showSettings)}>
+          <Button variant="light" onClick={() => setShowMove(!showMove)}>
+            + Déplacer un animal
+          </Button>
+          <Button variant="ghost-light" onClick={() => setShowSettings(!showSettings)}>
             ⚙ Paramètres des zones
-          </button>
+          </Button>
         </div>
         <strong>
           {activeStays.length}
-          <small>chats présents</small>
+          <small>animaux présents</small>
         </strong>
       </section>
       {showMove && (
         <Panel title="Envoyer ou changer de zone">
           <form className="move-form" onSubmit={send}>
-            <Field label="Chat *">
-              <select name="catId" required>
+            <Field label="Animal *">
+              <select
+                name="animalId"
+                required
+                value={moveAnimalId}
+                onChange={(event) => setMoveAnimalId(event.target.value)}
+              >
                 <option value="">Choisir</option>
-                {transferable.map((cat) => (
+                {visibleTransferable.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name}
+                    {snapshot.settings.enabledSpecies.length > 1
+                      ? ` · ${registeredSpecies.find((species) => species.id === cat.speciesId)?.label.singular}`
+                      : ""}
                   </option>
                 ))}
               </select>
             </Field>
+            {snapshot.settings.enabledSpecies.length > 1 && (
+              <SpeciesFilter
+                enabledSpecies={snapshot.settings.enabledSpecies}
+                value={animalSpeciesFilter}
+                onChange={setAnimalSpeciesFilter}
+              />
+            )}
             <Field label="Zone *">
               <select name="zoneId" required>
-                {snapshot.refugeZones.map((zone) => (
+                {compatibleZones.map((zone) => (
                   <option value={zone.id} key={zone.id}>
                     {zone.name}
                   </option>
@@ -3807,12 +4319,12 @@ function RefugePage({ snapshot, run }: PageProps) {
               </select>
             </Field>
             <Field label="Date *">
-              <FrenchDateInput name="date" defaultValue={localToday()} required />
+              <DateInput name="date" defaultValue={localToday()} required />
             </Field>
             <Field label="Motif">
               <input name="reason" placeholder="Retour, fin d'accueil, quarantaine…" />
             </Field>
-            <button className="button primary">Déplacer</button>
+            <Button variant="primary">Déplacer</Button>
           </form>
         </Panel>
       )}
@@ -3821,7 +4333,7 @@ function RefugePage({ snapshot, run }: PageProps) {
         {snapshot.refugeZones.map((zone) => {
           const stays = activeStays.filter((stay) => stay.zoneId === zone.id);
           return (
-            <article className="zone-card" key={zone.id}>
+            <article className="zone-card" key={zone.id} id={`refuge-zone-${zone.id}`}>
               <header>
                 <div>
                   <strong>{zone.name}</strong>
@@ -3831,12 +4343,12 @@ function RefugePage({ snapshot, run }: PageProps) {
               </header>
               <div>
                 {stays.map((stay) => {
-                  const cat = snapshot.cats.find((candidate) => candidate.id === stay.catId)!;
+                  const cat = snapshot.animals.find((candidate) => candidate.id === stay.animalId)!;
                   return (
                     <p key={stay.id}>
                       <span className="mini-avatar">{cat.name[0]}</span>
                       <span>
-                        <CatIdentity cat={cat} />
+                        <AnimalIdentity cat={cat} />
                         <small>
                           Depuis {formatDate(stay.startDate)} ·{" "}
                           {stay.reason || "Présence au refuge"}
@@ -3866,6 +4378,16 @@ function RefugeSettings({ snapshot, run }: PageProps) {
         window.catApp.createRefugeZone({
           name: String(data.get("name")),
           description: String(data.get("description")),
+          allowedSpecies:
+            snapshot.settings.enabledSpecies.length > 1
+              ? data
+                  .getAll("allowedSpecies")
+                  .filter(
+                    (value): value is SpeciesId =>
+                      typeof value === "string" &&
+                      snapshot.settings.enabledSpecies.includes(value as SpeciesId),
+                  )
+              : undefined,
         }),
       "Zone créée.",
     ).then(() => form.reset());
@@ -3880,7 +4402,18 @@ function RefugeSettings({ snapshot, run }: PageProps) {
           <Field label="Description">
             <input name="description" />
           </Field>
-          <button className="button primary">+ Créer</button>
+          {snapshot.settings.enabledSpecies.length > 1 && (
+            <FieldGroup label="Espèces acceptées *" wide>
+              <div className="checks">
+                {snapshot.settings.enabledSpecies.map((speciesId) => (
+                  <Checkbox key={speciesId} name="allowedSpecies" value={speciesId} defaultChecked>
+                    {registeredSpecies.find((species) => species.id === speciesId)?.label.plural}
+                  </Checkbox>
+                ))}
+              </div>
+            </FieldGroup>
+          )}
+          <Button variant="primary">+ Créer</Button>
         </form>
         <div>
           {snapshot.refugeZones.map((zone) => (
@@ -3896,6 +4429,16 @@ function RefugeSettings({ snapshot, run }: PageProps) {
                       id: zone.id,
                       name: String(data.get("name")),
                       description: String(data.get("description")),
+                      allowedSpecies:
+                        snapshot.settings.enabledSpecies.length > 1
+                          ? data
+                              .getAll("allowedSpecies")
+                              .filter(
+                                (value): value is SpeciesId =>
+                                  typeof value === "string" &&
+                                  snapshot.settings.enabledSpecies.includes(value as SpeciesId),
+                              )
+                          : undefined,
                     }),
                   "Zone modifiée.",
                 );
@@ -3903,10 +4446,29 @@ function RefugeSettings({ snapshot, run }: PageProps) {
             >
               <input name="name" defaultValue={zone.name} />
               <input name="description" defaultValue={zone.description} />
-              <button className="button tiny">Modifier</button>
-              <button
+              {snapshot.settings.enabledSpecies.length > 1 && (
+                <div className="checks">
+                  {snapshot.settings.enabledSpecies.map((speciesId) => (
+                    <Checkbox
+                      key={speciesId}
+                      name="allowedSpecies"
+                      value={speciesId}
+                      defaultChecked={
+                        zone.allowedSpecies === null || zone.allowedSpecies.includes(speciesId)
+                      }
+                    >
+                      {registeredSpecies.find((species) => species.id === speciesId)?.label.plural}
+                    </Checkbox>
+                  ))}
+                </div>
+              )}
+              <Button variant="secondary" size="small">
+                Modifier
+              </Button>
+              <Button
                 type="button"
-                className="icon-button danger"
+                variant="danger"
+                size="icon"
                 onClick={() => {
                   if (window.confirm(`Supprimer la zone ${zone.name} ?`)) {
                     void run(() => window.catApp.deleteRefugeZone(zone.id), "Zone supprimée.");
@@ -3914,7 +4476,7 @@ function RefugeSettings({ snapshot, run }: PageProps) {
                 }}
               >
                 ×
-              </button>
+              </Button>
             </form>
           ))}
         </div>
@@ -3954,7 +4516,7 @@ function ImportPage({
       setSnapshot(outcome.snapshot);
       setNotice({
         kind: "success",
-        text: `${outcome.result.importedCats} chats, ${outcome.result.importedFamilies} adoptants et ${outcome.result.importedAdoptions} adoptions importés.`,
+        text: `${outcome.result.importedAnimals} animaux, ${outcome.result.importedFamilies} familles et ${outcome.result.importedAdoptions} adoptions importés.`,
       });
       setPreview(null);
     } catch (error) {
@@ -3976,9 +4538,9 @@ function ImportPage({
           </p>
         </div>
         <div className="import-actions">
-          <button className="button primary" disabled={busy} onClick={() => void load()}>
+          <Button variant="primary" disabled={busy} onClick={() => void load()}>
             Choisir un CSV
-          </button>
+          </Button>
         </div>
       </section>
       {preview && (
@@ -3996,13 +4558,13 @@ function ImportPage({
           <Panel
             title="Diagnostic"
             action={
-              <button
-                className="button primary"
+              <Button
+                variant="primary"
                 disabled={busy || !preview.rows.some((row) => row.importable)}
                 onClick={() => void commit()}
               >
                 Importer
-              </button>
+              </Button>
             }
           >
             <p className="source-path">{preview.sourcePath}</p>
@@ -4036,54 +4598,38 @@ function Metric({ label, value, tone }: { label: string; value: number | string;
     </article>
   );
 }
-function openCat(catId: string) {
-  window.dispatchEvent(new CustomEvent("cat:open", { detail: catId }));
+function openAnimal(animalId: string) {
+  window.dispatchEvent(new CustomEvent("cat:open", { detail: animalId }));
 }
 function openFamily(familyId: string) {
   window.dispatchEvent(new CustomEvent("family:open", { detail: familyId }));
 }
-function CatIdentity({ cat }: { cat: Pick<AppSnapshot["cats"][number], "id" | "name"> }) {
-  const activate = (event: { stopPropagation(): void; preventDefault(): void }) => {
-    event.stopPropagation();
-    event.preventDefault();
-    openCat(cat.id);
-  };
+function AnimalIdentity({
+  cat,
+}: {
+  cat: Pick<AppSnapshot["animals"][number], "id" | "name" | "speciesId">;
+}) {
   return (
-    <span
-      className="cat-identity cat-link"
-      role="button"
-      tabIndex={0}
-      onClick={activate}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          activate(event);
-        }
-      }}
-    >
+    <RecordLink className="cat-identity cat-link" onActivate={() => openAnimal(cat.id)}>
       <strong>{cat.name}</strong>
-    </span>
+    </RecordLink>
   );
 }
 function FamilyLink({ family }: { family: Pick<AppSnapshot["families"][number], "id" | "label"> }) {
-  const activate = (event: { stopPropagation(): void; preventDefault(): void }) => {
-    event.stopPropagation();
-    event.preventDefault();
-    openFamily(family.id);
-  };
   return (
-    <span
-      className="family-link"
-      role="button"
-      tabIndex={0}
-      onClick={activate}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          activate(event);
-        }
-      }}
-    >
+    <RecordLink className="family-link" onActivate={() => openFamily(family.id)}>
       {family.label}
-    </span>
+    </RecordLink>
+  );
+}
+function RefugeLink({ zoneId = "", label = "Le refuge" }: { zoneId?: string; label?: string }) {
+  return (
+    <RecordLink
+      className="family-link"
+      onActivate={() => window.dispatchEvent(new CustomEvent("refuge:open", { detail: zoneId }))}
+    >
+      {label}
+    </RecordLink>
   );
 }
 function LocationHeading({
@@ -4103,7 +4649,7 @@ function CurrentLocation({
   cat,
   snapshot,
 }: {
-  cat: AppSnapshot["catViews"][number];
+  cat: AppSnapshot["animalViews"][number];
   snapshot: AppSnapshot;
 }) {
   const family = cat.currentFamilyId
@@ -4111,21 +4657,23 @@ function CurrentLocation({
     : undefined;
   return family ? (
     <FamilyLink family={family} />
+  ) : cat.status === "AT_REFUGE" ? (
+    <RefugeLink zoneId={cat.currentRefugeZoneId} label={cat.currentLocationLabel || "Le refuge"} />
   ) : (
-    <span>{cat.currentLocationLabel || "Le refuge"}</span>
+    <span>{cat.currentLocationLabel || "—"}</span>
   );
 }
 function Adoptability({
   cat,
 }: {
-  cat: Pick<AppSnapshot["cats"][number], "adoptionEligibility" | "adoptionBlockedReason">;
+  cat: Pick<AppSnapshot["animals"][number], "adoptionEligibility" | "adoptionBlockedReason">;
 }) {
   const label =
     cat.adoptionEligibility === "ELIGIBLE"
       ? "Oui"
-      : cat.adoptionEligibility === "ON_HOLD"
-        ? "Panier retraite"
-        : "Non";
+      : cat.adoptionEligibility === "INELIGIBLE"
+        ? "Non"
+        : "Inconnu";
   return (
     <span className="adoptability">
       <b className={cat.adoptionEligibility === "INELIGIBLE" ? "no" : ""}>{label}</b>
@@ -4142,62 +4690,199 @@ function Adoptability({
     </span>
   );
 }
-function Panel({
-  title,
-  action,
-  children,
+function SettingsPage({
+  snapshot,
+  setSnapshot,
+  setNotice,
 }: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
+  snapshot: AppSnapshot;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  setNotice: (notice: Notice | null) => void;
 }) {
+  const [saving, setSaving] = useState(false);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplates>(snapshot.emailTemplates);
+  useEffect(() => setEmailTemplates(snapshot.emailTemplates), [snapshot.emailTemplates]);
+  const update = async (speciesId: SpeciesId, checked: boolean) => {
+    if (saving) {
+      return;
+    }
+    const next = checked
+      ? [...new Set([...snapshot.settings.enabledSpecies, speciesId])]
+      : snapshot.settings.enabledSpecies.filter((species) => species !== speciesId);
+    setSaving(true);
+    try {
+      setSnapshot(await window.catApp.setEnabledSpecies(next));
+      setNotice({ kind: "success", text: "Espèces prises en charge mises à jour." });
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-function Field({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
-  return (
-    <label className={`field ${wide ? "wide" : ""}`}>
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-function Empty({ text }: { text: string }) {
-  return (
-    <div className="empty">
-      <span>◇</span>
-      <p>{text}</p>
+    <div className="page-stack settings-page">
+      <PageHeader>
+        <p>Personnalisez les espèces suivies dans ce registre.</p>
+      </PageHeader>
+      <Panel title="Espèces prises en charge">
+        <p className="panel-intro" id="settings-species-description">
+          Activez les espèces que votre association accueille. Avec une seule espèce, les listes et
+          formulaires s'adaptent automatiquement.
+        </p>
+        {snapshot.demoMode && (
+          <Callout tone="warning" id="settings-demo-description">
+            En mode démo, chaque changement recrée les animaux de démonstration et remplace vos
+            essais. Votre registre réel reste séparé.
+          </Callout>
+        )}
+        <fieldset
+          className="option-list"
+          aria-label="Espèces prises en charge"
+          aria-describedby={`settings-species-description${snapshot.demoMode ? " settings-demo-description" : ""}`}
+          disabled={saving}
+          aria-busy={saving}
+        >
+          {registeredSpecies.map((species) => {
+            const enabled = snapshot.settings.enabledSpecies.includes(species.id);
+            const count = snapshot.animals.filter(
+              (animal) => animal.speciesId === species.id,
+            ).length;
+            const reason =
+              enabled && count > 0
+                ? `${count} ${count === 1 ? "animal enregistré" : "animaux enregistrés"}. Cette espèce reste active, même après adoption.`
+                : enabled && snapshot.settings.enabledSpecies.length === 1
+                  ? "Au moins une espèce doit rester active."
+                  : "";
+            return (
+              <Checkbox
+                key={species.id}
+                layout="row"
+                aria-label={species.label.plural}
+                checked={enabled}
+                disabled={Boolean(reason)}
+                onChange={(event) => void update(species.id, event.target.checked)}
+                description={
+                  <span id={`settings-species-${species.id}-description`}>
+                    {reason ||
+                      (enabled
+                        ? "Disponible dans les listes et formulaires du registre."
+                        : "Activez cette espèce pour ajouter des animaux au registre.")}
+                  </span>
+                }
+                trailing={
+                  <Badge tone={enabled ? "success" : "neutral"}>
+                    {count} {count === 1 ? "animal" : "animaux"}
+                  </Badge>
+                }
+              >
+                {species.label.plural}
+              </Checkbox>
+            );
+          })}
+        </fieldset>
+        <p className="form-feedback" role="status">
+          {saving
+            ? "Enregistrement en cours…"
+            : "Les modifications sont enregistrées automatiquement."}
+        </p>
+      </Panel>
+      <Panel title="Modèles d’e-mails">
+        <p className="panel-intro">
+          Les messages sont créés automatiquement quand un soin approche. Variables disponibles :{" "}
+          <code>{"{animal}"}</code>, <code>{"{contact}"}</code>, <code>{"{date}"}</code>.
+        </p>
+        <div className="form-grid">
+          <Field label="Délai avant l’échéance (jours)">
+            <input
+              type="number"
+              min={0}
+              max={90}
+              value={emailTemplates.leadDays}
+              onChange={(event) =>
+                setEmailTemplates({ ...emailTemplates, leadDays: Number(event.target.value) })
+              }
+            />
+          </Field>
+        </div>
+        {(
+          [
+            ["sterilisation", "Stérilisation"],
+            ["vaccination", "Vaccination"],
+            ["antiFlea", "Antipuce"],
+            ["deworming", "Vermifuge"],
+            ["icad", "Changement ICAD après adoption"],
+          ] as const
+        ).map(([key, label]) => (
+          <div className="email-template" key={key}>
+            <h3>{label}</h3>
+            <div className="form-grid">
+              <Field label="Objet">
+                <input
+                  value={emailTemplates[key].subject}
+                  onChange={(event) =>
+                    setEmailTemplates({
+                      ...emailTemplates,
+                      [key]: { ...emailTemplates[key], subject: event.target.value },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Message" wide>
+                <textarea
+                  rows={5}
+                  value={emailTemplates[key].body}
+                  onChange={(event) =>
+                    setEmailTemplates({
+                      ...emailTemplates,
+                      [key]: { ...emailTemplates[key], body: event.target.value },
+                    })
+                  }
+                />
+              </Field>
+            </div>
+          </div>
+        ))}
+        <FormActions>
+          <Button
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                setSnapshot(await window.catApp.updateEmailTemplates(emailTemplates));
+                setNotice({ kind: "success", text: "Modèles d’e-mails enregistrés." });
+              } catch (error) {
+                setNotice({ kind: "error", text: errorMessage(error) });
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            {saving ? "Enregistrement…" : "Enregistrer les modèles"}
+          </Button>
+        </FormActions>
+      </Panel>
     </div>
   );
 }
-function eventLabel(type: string, label?: string): string {
+
+function eventLabel(type: AnimalEventType, label?: string): string {
   if (type === "NOTE_ADDED") {
     return label || "Note de suivi";
   }
-  return (
-    (
-      {
-        REGISTERED: "Enregistré",
-        PLACED_IN_FOSTER: "Placé en famille d'accueil",
-        FOSTER_ENDED: "Accueil terminé",
-        SENT_TO_REFUGE: "Envoyé au refuge",
-        REFUGE_ZONE_CHANGED: "Zone du refuge changée",
-        LEFT_REFUGE: "Sortie du refuge",
-        ADOPTED: "Adopté",
-        RETURNED: "Retour d'adoption",
-        LOST: "Déclaré perdu",
-        DECEASED: "Déclaré décédé",
-        TRANSFERRED: "Transféré",
-        DECLARED_SICK: "Déclaré malade",
-        RECOVERED: "Déclaré rétabli",
-      } as Record<string, string>
-    )[type] ?? type
-  );
+  const labels: Record<Exclude<AnimalEventType, "NOTE_ADDED">, string> = {
+    REGISTERED: "Enregistré",
+    PLACED_IN_FOSTER: "Placé en famille d'accueil",
+    FOSTER_ENDED: "Accueil terminé",
+    SENT_TO_REFUGE: "Envoyé au refuge",
+    REFUGE_ZONE_CHANGED: "Zone du refuge changée",
+    LEFT_REFUGE: "Sortie du refuge",
+    ADOPTED: "Adopté",
+    RETURNED: "Retour d'adoption",
+    LOST: "Déclaré perdu",
+    DECEASED: "Déclaré décédé",
+    TRANSFERRED: "Transféré",
+    DECLARED_SICK: "Déclaré malade",
+    RECOVERED: "Déclaré rétabli",
+  };
+  return labels[type];
 }

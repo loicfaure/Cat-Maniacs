@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { resolve } from "node:path";
 
-const electronName = process.platform === "win32" ? "electron.exe" : "electron";
-const electron = process.env.ELECTRON_BINARY ?? resolve("node_modules/electron/dist", electronName);
+const require = createRequire(import.meta.url);
+const electron = process.env.ELECTRON_BINARY || require("electron");
 if (!existsSync(electron)) {
   throw new Error(
-    "Electron est introuvable. Définissez ELECTRON_BINARY vers un binaire Electron déjà installé.",
+    "Electron est introuvable. Exécutez npm run electron:install ou vérifiez ELECTRON_BINARY.",
   );
 }
 
@@ -17,8 +17,8 @@ const port = process.env.CAT_DEMO_DEBUG_PORT
 const environment = {
   ...process.env,
   CAT_DISPENSER_DEMO: "1",
-  CAT_DISPENSER_DEMO_RESET: "1",
 };
+delete environment.ELECTRON_RUN_AS_NODE;
 const args = [];
 if (process.env.CAT_DISPENSER_NO_SANDBOX === "1") {
   args.push("--no-sandbox");
@@ -91,7 +91,10 @@ async function replay() {
     }
 
     await clickText(cdp, "Chats", { selector: "nav button" });
-    await clickText(cdp, "+ Nouveau chat", { selector: "main button" });
+    await evaluate(
+      cdp,
+      "Array.from(document.querySelectorAll('main button')).find((button) => button.textContent.includes('Nouveau'))?.click()",
+    );
     await waitFor(
       cdp,
       "!!document.querySelector('input[name=name]')",

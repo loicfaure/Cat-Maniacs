@@ -1,27 +1,30 @@
 import type {
   Adopter,
   Adoption,
-  Cat,
-  CatEvent,
-  CatStatus,
-  CatView,
+  Animal,
+  AnimalEvent,
+  AnimalStatus,
+  AnimalView,
   Dataset,
   Family,
   FosterPlacement,
   RefugeStay,
-} from "../shared/types";
+} from "../core/types";
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_MODEL_VERSION = 1 as const;
 
-export function createEmptyDataset(name = "Gestion des chats"): Dataset {
+export function createEmptyDataset(name = "Gestion des animaux"): Dataset {
   const now = new Date().toISOString();
   return {
+    modelVersion: CURRENT_MODEL_VERSION,
     schemaVersion: CURRENT_SCHEMA_VERSION,
     datasetId: crypto.randomUUID(),
     name,
     createdAt: now,
     updatedAt: now,
-    cats: [],
+    settings: { enabledSpecies: ["cat"] },
+    animals: [],
     families: [],
     adopters: [],
     fosterFamilyHolidays: [],
@@ -31,6 +34,7 @@ export function createEmptyDataset(name = "Gestion des chats"): Dataset {
         id: crypto.randomUUID(),
         name: "Zone principale",
         description: "Zone d'accueil par défaut du refuge",
+        allowedSpecies: null,
         createdAt: now,
         updatedAt: now,
       },
@@ -38,21 +42,21 @@ export function createEmptyDataset(name = "Gestion des chats"): Dataset {
     refugeStays: [],
     adoptions: [],
     adoptionDays: [],
-    adoptionDayCats: [],
+    adoptionDayAnimals: [],
     partnerPlaces: [],
     healthAlerts: [],
-    catEvents: [],
+    animalEvents: [],
     tasks: [],
     followUps: [],
     sponsorships: [],
   };
 }
 
-export function deriveCatView(dataset: Dataset, cat: Cat): CatView {
+export function deriveAnimalView(dataset: Dataset, cat: Animal): AnimalView {
   const base = { ...cat, currentFamilyId: "", currentRefugeZoneId: "", currentLocationLabel: "" };
   const latestTerminal = latestEvent(
-    dataset.catEvents.filter(
-      (event) => event.catId === cat.id && ["LOST", "DECEASED"].includes(event.type),
+    dataset.animalEvents.filter(
+      (event) => event.animalId === cat.id && ["LOST", "DECEASED"].includes(event.type),
     ),
   );
   if (latestTerminal?.type === "DECEASED") {
@@ -87,30 +91,34 @@ export function deriveCatView(dataset: Dataset, cat: Cat): CatView {
       currentLocationLabel: `Le refuge · ${zone?.name ?? "Zone inconnue"}`,
     };
   }
-  const defaultZone = dataset.refugeZones[0];
+  const defaultZone = dataset.refugeZones.find(
+    (zone) => zone.allowedSpecies === null || zone.allowedSpecies.includes(cat.speciesId),
+  );
   return {
     ...base,
     status: "AT_REFUGE",
     currentRefugeZoneId: defaultZone?.id ?? "",
-    currentLocationLabel: `Le refuge · ${defaultZone?.name ?? "Zone principale"}`,
+    currentLocationLabel: defaultZone
+      ? `Le refuge · ${defaultZone.name}`
+      : "Le refuge · Zone compatible à choisir",
   };
 }
 
-function latestEvent(events: CatEvent[]): CatEvent | undefined {
+function latestEvent(events: AnimalEvent[]): AnimalEvent | undefined {
   return [...events].sort(
     (left, right) =>
       right.date.localeCompare(left.date) || right.createdAt.localeCompare(left.createdAt),
   )[0];
 }
 
-export function getCatStatus(dataset: Dataset, catId: string): CatStatus {
-  return deriveCatView(dataset, requireCat(dataset, catId)).status;
+export function getAnimalStatus(dataset: Dataset, animalId: string): AnimalStatus {
+  return deriveAnimalView(dataset, requireAnimal(dataset, animalId)).status;
 }
 
-export function requireCat(dataset: Dataset, catId: string): Cat {
-  const cat = dataset.cats.find((candidate) => candidate.id === catId);
+export function requireAnimal(dataset: Dataset, animalId: string): Animal {
+  const cat = dataset.animals.find((candidate) => candidate.id === animalId);
   if (!cat) {
-    throw new Error("Chat introuvable.");
+    throw new Error("Animal introuvable.");
   }
   return cat;
 }
@@ -131,19 +139,19 @@ export function requireAdopter(dataset: Dataset, adopterId: string): Adopter {
   return adopter;
 }
 
-export function activePlacement(dataset: Dataset, catId: string): FosterPlacement | undefined {
+export function activePlacement(dataset: Dataset, animalId: string): FosterPlacement | undefined {
   return dataset.fosterPlacements.find(
-    (placement) => placement.catId === catId && !placement.endDate,
+    (placement) => placement.animalId === animalId && !placement.endDate,
   );
 }
 
-export function activeRefugeStay(dataset: Dataset, catId: string): RefugeStay | undefined {
-  return dataset.refugeStays.find((stay) => stay.catId === catId && !stay.endDate);
+export function activeRefugeStay(dataset: Dataset, animalId: string): RefugeStay | undefined {
+  return dataset.refugeStays.find((stay) => stay.animalId === animalId && !stay.endDate);
 }
 
-export function activeAdoption(dataset: Dataset, catId: string): Adoption | undefined {
+export function activeAdoption(dataset: Dataset, animalId: string): Adoption | undefined {
   return dataset.adoptions.find(
-    (adoption) => adoption.catId === catId && adoption.status === "ACTIVE",
+    (adoption) => adoption.animalId === animalId && adoption.status === "ACTIVE",
   );
 }
 
@@ -171,7 +179,7 @@ export function isValidIcad(value: string): boolean {
 
 export function validateDatasetReferences(dataset: Dataset): string[] {
   const errors: string[] = [];
-  const catIds = new Set(dataset.cats.map((cat) => cat.id));
+  const animalIds = new Set(dataset.animals.map((cat) => cat.id));
   const familyIds = new Set(dataset.families.map((family) => family.id));
   const adopterIds = new Set(dataset.adopters.map((adopter) => adopter.id));
   const zoneIds = new Set(dataset.refugeZones.map((zone) => zone.id));
@@ -183,24 +191,24 @@ export function validateDatasetReferences(dataset: Dataset): string[] {
     }
   }
   for (const placement of dataset.fosterPlacements) {
-    if (!catIds.has(placement.catId)) {
-      errors.push(`Placement ${placement.id}: chat absent.`);
+    if (!animalIds.has(placement.animalId)) {
+      errors.push(`Placement ${placement.id}: animal absent.`);
     }
     if (!familyIds.has(placement.familyId)) {
       errors.push(`Placement ${placement.id}: famille absente.`);
     }
   }
   for (const stay of dataset.refugeStays) {
-    if (!catIds.has(stay.catId)) {
-      errors.push(`Séjour refuge ${stay.id}: chat absent.`);
+    if (!animalIds.has(stay.animalId)) {
+      errors.push(`Séjour refuge ${stay.id}: animal absent.`);
     }
     if (!zoneIds.has(stay.zoneId)) {
       errors.push(`Séjour refuge ${stay.id}: zone absente.`);
     }
   }
   for (const adoption of dataset.adoptions) {
-    if (!catIds.has(adoption.catId)) {
-      errors.push(`Adoption ${adoption.id}: chat absent.`);
+    if (!animalIds.has(adoption.animalId)) {
+      errors.push(`Adoption ${adoption.id}: animal absent.`);
     }
     if (!adopterIds.has(adoption.adopterId)) {
       errors.push(`Adoption ${adoption.id}: adoptant absent.`);
@@ -209,9 +217,9 @@ export function validateDatasetReferences(dataset: Dataset): string[] {
       errors.push(`Adoption ${adoption.id}: journée absente.`);
     }
   }
-  for (const registration of dataset.adoptionDayCats) {
-    if (!catIds.has(registration.catId)) {
-      errors.push(`Inscription ${registration.id}: chat absent.`);
+  for (const registration of dataset.adoptionDayAnimals) {
+    if (!animalIds.has(registration.animalId)) {
+      errors.push(`Inscription ${registration.id}: animal absent.`);
     }
     if (!adoptionDayIds.has(registration.adoptionDayId)) {
       errors.push(`Inscription ${registration.id}: journée absente.`);
@@ -221,28 +229,28 @@ export function validateDatasetReferences(dataset: Dataset): string[] {
     }
   }
   for (const alert of dataset.healthAlerts) {
-    if (!catIds.has(alert.catId)) {
-      errors.push(`Alerte ${alert.id}: chat absent.`);
+    if (!animalIds.has(alert.animalId)) {
+      errors.push(`Alerte ${alert.id}: animal absent.`);
     }
   }
-  for (const event of dataset.catEvents) {
-    if (!catIds.has(event.catId)) {
-      errors.push(`Événement ${event.id}: chat absent.`);
+  for (const event of dataset.animalEvents) {
+    if (!animalIds.has(event.animalId)) {
+      errors.push(`Événement ${event.id}: animal absent.`);
     }
   }
   for (const task of dataset.tasks) {
-    if (!catIds.has(task.catId)) {
-      errors.push(`Tâche ${task.id}: chat absent.`);
+    if (!animalIds.has(task.animalId)) {
+      errors.push(`Tâche ${task.id}: animal absent.`);
     }
   }
   for (const sponsorship of dataset.sponsorships) {
-    if (!catIds.has(sponsorship.catId)) {
-      errors.push(`Parrainage ${sponsorship.id}: chat absent.`);
+    if (!animalIds.has(sponsorship.animalId)) {
+      errors.push(`Parrainage ${sponsorship.id}: animal absent.`);
     }
   }
   for (const followUp of dataset.followUps) {
-    if (!catIds.has(followUp.catId)) {
-      errors.push(`Relance ${followUp.id}: chat absent.`);
+    if (!animalIds.has(followUp.animalId)) {
+      errors.push(`Relance ${followUp.id}: animal absent.`);
     }
     if (followUp.adoptionId && !adoptionIds.has(followUp.adoptionId)) {
       errors.push(`Relance ${followUp.id}: adoption absente.`);

@@ -1,20 +1,16 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { createRequire } from "node:module";
 
-const executableName = process.platform === "win32" ? "electron.exe" : "electron";
-const candidates = [
-  process.env.ELECTRON_BINARY,
-  resolve("node_modules/electron/dist", executableName),
-].filter(Boolean);
-const executable = candidates.find((candidate) => existsSync(candidate));
+const require = createRequire(import.meta.url);
+const executable = process.env.ELECTRON_BINARY || require("electron");
 
-if (!executable) {
+if (!existsSync(executable)) {
   console.error(
     [
       "Aucun binaire Electron n'est disponible.",
-      "Les scripts d'installation npm sont désactivés volontairement dans .npmrc.",
-      "Définissez ELECTRON_BINARY vers un binaire Electron 44 déjà installé.",
+      "Exécutez npm run electron:install pour installer la version du projet.",
+      "Vérifiez ELECTRON_BINARY si vous utilisez un exécutable personnalisé.",
     ].join("\n"),
   );
   process.exit(1);
@@ -24,6 +20,10 @@ const environment = { ...process.env };
 delete environment.ELECTRON_RUN_AS_NODE;
 const launchArgs = process.env.CAT_DISPENSER_NO_SANDBOX === "1" ? ["--no-sandbox", "."] : ["."];
 const child = spawn(executable, launchArgs, { stdio: "inherit", env: environment });
+child.on("error", (error) => {
+  console.error(`Impossible de lancer Electron : ${error.message}`);
+  process.exitCode = 1;
+});
 child.on("exit", (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal);

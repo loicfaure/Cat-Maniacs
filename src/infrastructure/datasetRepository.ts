@@ -9,460 +9,106 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import type { DatasetRepositoryPort } from "../application/ports/datasetRepository";
+import { csvToRecords, parseCsv, stringifyCsv } from "../core/csv";
+import type { Dataset } from "../core/types";
 import {
   CURRENT_SCHEMA_VERSION,
   createEmptyDataset,
-  deriveCatView,
   validateDatasetReferences,
 } from "../domain/dataset";
-import type { CatProfile, Dataset } from "../shared/types";
-import { csvToRecords, stringifyCsv } from "./csv";
+import { parseDatasetManifest, parseTransactionJournal } from "./database/json";
+import { type CsvTableRecord, loadDatasetTable, serializeDatasetTable } from "./database/records";
+import { TABLES } from "./database/tables";
+import type { DatasetManifest, TransactionFile } from "./database/types";
+import { recoverStaleMigrationBeforeInspection } from "./migrations/transaction";
 
-type DatasetListKey =
-  | "cats"
-  | "families"
-  | "adopters"
-  | "fosterFamilyHolidays"
-  | "fosterPlacements"
-  | "refugeZones"
-  | "refugeStays"
-  | "adoptions"
-  | "adoptionDays"
-  | "adoptionDayCats"
-  | "healthAlerts"
-  | "partnerPlaces"
-  | "catEvents"
-  | "tasks"
-  | "followUps"
-  | "sponsorships";
-interface TableDefinition {
-  key: DatasetListKey;
-  file: string;
-  headers: string[];
-}
+export class DatasetRepository implements DatasetRepositoryPort {
+  static async recoverPendingMigration(directory: string): Promise<void> {
+    await recoverStaleMigrationBeforeInspection(directory);
+  }
 
-const TABLES: TableDefinition[] = [
-  {
-    key: "cats",
-    file: "cats.csv",
-    headers: [
-      "id",
-      "name",
-      "identificationNumber",
-      "birthDate",
-      "sex",
-      "profile",
-      "sterilizationStatus",
-      "adoptionEligibility",
-      "adoptionBlockedReason",
-      "healthStatus",
-      "intakeDate",
-      "notes",
-      "description",
-      "photo",
-      "okWithCats",
-      "okWithDogs",
-      "okWithChildren",
-      "medications",
-      "medicationSchedule",
-      "medicationEndDate",
-      "vaccines",
-      "deworming",
-      "antiFlea",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "families",
-    file: "families.csv",
-    headers: [
-      "id",
-      "label",
-      "courtesyTitle",
-      "firstName",
-      "lastName",
-      "email",
-      "phone",
-      "address",
-      "maxCapacity",
-      "acceptedProfiles",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "adopters",
-    file: "adopters.csv",
-    headers: [
-      "id",
-      "label",
-      "courtesyTitle",
-      "firstName",
-      "lastName",
-      "email",
-      "phone",
-      "address",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "fosterFamilyHolidays",
-    file: "foster_family_holidays.csv",
-    headers: ["id", "familyId", "startDate", "endDate", "notes", "createdAt"],
-  },
-  {
-    key: "fosterPlacements",
-    file: "foster_placements.csv",
-    headers: [
-      "id",
-      "catId",
-      "familyId",
-      "startDate",
-      "endDate",
-      "outcome",
-      "overrideReason",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "refugeZones",
-    file: "refuge_zones.csv",
-    headers: ["id", "name", "description", "createdAt", "updatedAt"],
-  },
-  {
-    key: "refugeStays",
-    file: "refuge_stays.csv",
-    headers: [
-      "id",
-      "catId",
-      "zoneId",
-      "startDate",
-      "endDate",
-      "reason",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "adoptions",
-    file: "adoptions.csv",
-    headers: [
-      "id",
-      "groupId",
-      "catId",
-      "adopterId",
-      "adoptionDate",
-      "partner",
-      "adoptionDayId",
-      "status",
-      "endedAt",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "adoptionDays",
-    file: "adoption_days.csv",
-    headers: [
-      "id",
-      "name",
-      "startDate",
-      "endDate",
-      "partner",
-      "location",
-      "status",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "adoptionDayCats",
-    file: "adoption_day_cats.csv",
-    headers: [
-      "id",
-      "adoptionDayId",
-      "catId",
-      "status",
-      "overrideReason",
-      "notes",
-      "adopterId",
-      "bookedAt",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "partnerPlaces",
-    file: "partner_places.csv",
-    headers: ["id", "name", "address", "notes", "createdAt", "updatedAt"],
-  },
-  {
-    key: "healthAlerts",
-    file: "health_alerts.csv",
-    headers: [
-      "id",
-      "catId",
-      "disease",
-      "declaredAt",
-      "lookbackDays",
-      "status",
-      "resolvedAt",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "catEvents",
-    file: "cat_events.csv",
-    headers: ["id", "catId", "type", "date", "label", "notes", "createdAt"],
-  },
-  {
-    key: "tasks",
-    file: "tasks.csv",
-    headers: [
-      "id",
-      "catId",
-      "type",
-      "status",
-      "dueDate",
-      "completedAt",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "followUps",
-    file: "follow_ups.csv",
-    headers: [
-      "id",
-      "catId",
-      "adoptionId",
-      "requestedAt",
-      "response",
-      "lastNewsAt",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-  {
-    key: "sponsorships",
-    file: "sponsorships.csv",
-    headers: [
-      "id",
-      "catId",
-      "firstName",
-      "lastName",
-      "email",
-      "monthlyAmount",
-      "startDate",
-      "endDate",
-      "paymentNotes",
-      "notes",
-      "createdAt",
-      "updatedAt",
-    ],
-  },
-];
-
-interface TransactionFile {
-  temporary: string;
-  target: string;
-}
-
-export class DatasetRepository {
-  private migrationPerformed = false;
   private constructor(public readonly directory: string) {}
 
   static async open(
     directory: string,
   ): Promise<{ repository: DatasetRepository; dataset: Dataset }> {
     const repository = new DatasetRepository(directory);
-    await mkdir(directory, { recursive: true });
-    await repository.recoverTransaction();
-    if (!(await exists(join(directory, "dataset.json")))) {
+    await recoverStaleMigrationBeforeInspection(directory);
+    const manifestPath = join(directory, "dataset.json");
+    if (!(await exists(manifestPath))) {
+      await mkdir(directory, { recursive: true });
       const dataset = createEmptyDataset();
       await repository.save(dataset, false);
       return { repository, dataset };
     }
-    const dataset = await repository.load();
-    if (repository.migrationPerformed) {
-      await repository.save(dataset, true);
+    const rawManifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
+    if (!rawManifest || typeof rawManifest !== "object" || !("modelVersion" in rawManifest)) {
+      throw new Error(
+        "Ce jeu de données ancien doit être sauvegardé et converti vers le modèle animal v1 avant son ouverture.",
+      );
     }
+    const versionFields = rawManifest as Record<string, unknown>;
+    if (
+      versionFields.modelVersion !== 1 ||
+      versionFields.schemaVersion !== CURRENT_SCHEMA_VERSION
+    ) {
+      if (
+        typeof versionFields.schemaVersion === "number" &&
+        versionFields.schemaVersion > CURRENT_SCHEMA_VERSION
+      ) {
+        throw new Error(
+          "Ce jeu de données a été créé par une version plus récente de l'application.",
+        );
+      }
+      throw new Error(
+        "Le format de ce jeu de données nécessite une migration avant son ouverture.",
+      );
+    }
+    await mkdir(directory, { recursive: true });
+    await repository.recoverTransaction();
+    const dataset = await repository.load();
+    return { repository, dataset };
+  }
+
+  /** Demo reset intentionally replaces the isolated demo register without
+   * parsing obsolete animal tables that may predate model v1. */
+  static async openDemo(
+    directory: string,
+    dataset: Dataset,
+  ): Promise<{ repository: DatasetRepository; dataset: Dataset }> {
+    const repository = new DatasetRepository(directory);
+    await recoverStaleMigrationBeforeInspection(directory);
+    await mkdir(directory, { recursive: true });
+    await repository.recoverTransaction();
+    await repository.save(dataset, false);
     return { repository, dataset };
   }
 
   async load(): Promise<Dataset> {
-    const manifest = JSON.parse(
+    const manifest = parseDatasetManifest(
       await readFile(join(this.directory, "dataset.json"), "utf8"),
-    ) as Pick<Dataset, "schemaVersion" | "datasetId" | "name" | "createdAt" | "updatedAt">;
-    if (manifest.schemaVersion > CURRENT_SCHEMA_VERSION) {
+    );
+    if (manifest.modelVersion !== 1 || manifest.schemaVersion > CURRENT_SCHEMA_VERSION) {
       throw new Error(
         "Ce jeu de données a été créé par une version plus récente de l'application.",
       );
     }
-    if (manifest.schemaVersion < 2) {
-      this.migrationPerformed = true;
-      return this.loadVersionOne(manifest);
-    }
     if (manifest.schemaVersion < CURRENT_SCHEMA_VERSION) {
-      this.migrationPerformed = true;
+      throw new Error("Une migration est requise avant l'ouverture de ce jeu de données.");
     }
 
     const dataset = emptyFromManifest(manifest);
     for (const table of TABLES) {
-      const records = await this.readOptionalTable(table.file);
-      if (table.key === "cats") {
-        dataset.cats = records.map(normalizeCat) as Dataset["cats"];
-      } else if (table.key === "sponsorships") {
-        dataset.sponsorships = records.map((record) => ({
-          ...record,
-          monthlyAmount: Number(record.monthlyAmount || 0),
-        })) as unknown as Dataset["sponsorships"];
-      } else if (table.key === "families") {
-        dataset.families = records.map((record) => ({
-          ...record,
-          maxCapacity: Number(record.maxCapacity || 1),
-          acceptedProfiles: splitProfiles(record.acceptedProfiles),
-        })) as Dataset["families"];
-      } else if (table.key === "healthAlerts") {
-        dataset.healthAlerts = records.map((record) => ({
-          ...record,
-          lookbackDays: Number(record.lookbackDays || 0),
-        })) as Dataset["healthAlerts"];
-      } else if (table.key === "adoptionDayCats") {
-        dataset.adoptionDayCats = records.map((record) => ({
-          ...record,
-          adopterId: record.adopterId || "",
-          bookedAt: record.bookedAt || "",
-        })) as Dataset["adoptionDayCats"];
-      } else {
-        (dataset[table.key] as unknown[]) = records as unknown[];
-      }
-    }
-    let endedForDeceased = false;
-    for (const cat of dataset.cats) {
-      if (deriveCatView(dataset, cat).status !== "DECEASED") {
-        continue;
-      }
-      const terminal = dataset.catEvents
-        .filter((event) => event.catId === cat.id && ["LOST", "DECEASED"].includes(event.type))
-        .sort((a, b) => b.date.localeCompare(a.date))[0];
-      if (!terminal || terminal.type !== "DECEASED") {
-        continue;
-      }
-      for (const sponsorship of dataset.sponsorships) {
-        if (sponsorship.catId === cat.id && !sponsorship.endDate) {
-          sponsorship.endDate = terminal.date;
-          sponsorship.updatedAt = new Date().toISOString();
-          endedForDeceased = true;
-        }
-      }
-      for (const task of dataset.tasks) {
-        if (task.catId === cat.id && task.status === "OPEN") {
-          task.status = "CANCELLED";
-          task.updatedAt = new Date().toISOString();
-          endedForDeceased = true;
-        }
-      }
-    }
-    if (endedForDeceased) {
-      this.migrationPerformed = true;
-      dataset.updatedAt = new Date().toISOString();
-    }
-    this.assertReferences(dataset);
-    return dataset;
-  }
-
-  private async loadVersionOne(
-    manifest: Pick<Dataset, "schemaVersion" | "datasetId" | "name" | "createdAt" | "updatedAt">,
-  ): Promise<Dataset> {
-    const dataset = emptyFromManifest({ ...manifest, schemaVersion: CURRENT_SCHEMA_VERSION });
-    const oldCats = await this.readOptionalTable("cats.csv");
-    const oldFamilies = await this.readOptionalTable("families.csv");
-    dataset.cats = oldCats.map(normalizeCat) as Dataset["cats"];
-    const allProfiles: CatProfile[] = [
-      "BOTTLE_KITTEN",
-      "KITTEN",
-      "ADULT",
-      "SENIOR",
-      "SPECIAL_NEEDS",
-    ];
-    for (const record of oldFamilies) {
-      const roles = (record.roles || "").split("|");
-      const contact = {
-        id: record.id,
-        label: record.label,
-        courtesyTitle: record.courtesyTitle,
-        firstName: record.firstName,
-        lastName: record.lastName,
-        email: record.email,
-        phone: record.phone,
-        address: record.address,
-        notes: record.notes,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
-      };
-      if (roles.includes("FOSTER")) {
-        dataset.families.push({ ...contact, maxCapacity: 5, acceptedProfiles: allProfiles });
-      }
-      if (roles.includes("ADOPTER")) {
-        dataset.adopters.push(contact);
-      }
-    }
-    dataset.fosterPlacements = (await this.readOptionalTable("foster_placements.csv")).map(
-      (record) => ({ ...record, overrideReason: "" }),
-    ) as Dataset["fosterPlacements"];
-    dataset.adoptions = (await this.readOptionalTable("adoptions.csv")).map((record) => ({
-      ...record,
-      adopterId: record.familyId,
-      adoptionDayId: "",
-    })) as Dataset["adoptions"];
-    dataset.catEvents = (await this.readOptionalTable(
-      "cat_events.csv",
-    )) as unknown as Dataset["catEvents"];
-    dataset.tasks = (await this.readOptionalTable("tasks.csv")) as unknown as Dataset["tasks"];
-    dataset.followUps = (await this.readOptionalTable(
-      "follow_ups.csv",
-    )) as unknown as Dataset["followUps"];
-    const missingAdopterIds = new Set(
-      dataset.adoptions
-        .map((adoption) => adoption.adopterId)
-        .filter((adopterId) => !dataset.adopters.some((adopter) => adopter.id === adopterId)),
-    );
-    for (const adopterId of missingAdopterIds) {
-      const old = oldFamilies.find((record) => record.id === adopterId);
-      if (old) {
-        dataset.adopters.push({
-          id: old.id,
-          label: old.label,
-          courtesyTitle: old.courtesyTitle,
-          firstName: old.firstName,
-          lastName: old.lastName,
-          email: old.email,
-          phone: old.phone,
-          address: old.address,
-          notes: old.notes,
-          createdAt: old.createdAt,
-          updatedAt: old.updatedAt,
-        });
-      }
+      const records = await this.readOptionalTable(table.file, table.headers);
+      loadDatasetTable(table.key, dataset, records);
     }
     this.assertReferences(dataset);
     return dataset;
   }
 
   async save(dataset: Dataset, createBackup = true): Promise<void> {
+    await recoverStaleMigrationBeforeInspection(this.directory);
     await mkdir(this.directory, { recursive: true });
     if (createBackup) {
       await this.backupCurrentFiles();
@@ -472,23 +118,20 @@ export class DatasetRepository {
     for (const table of TABLES) {
       const target = join(this.directory, table.file);
       const temporary = `${target}.${transactionId}.tmp`;
-      const records = (dataset[table.key] as unknown as Array<Record<string, unknown>>).map(
-        (record) =>
-          table.key === "families"
-            ? { ...record, acceptedProfiles: (record.acceptedProfiles as string[]).join("|") }
-            : record,
-      );
+      const records = serializeDatasetTable(table.key, dataset);
       await writeFile(temporary, stringifyCsv(table.headers, records), "utf8");
       files.push({ temporary, target });
     }
     const manifestTarget = join(this.directory, "dataset.json");
     const manifestTemporary = `${manifestTarget}.${transactionId}.tmp`;
     const manifest = {
+      modelVersion: dataset.modelVersion,
       schemaVersion: dataset.schemaVersion,
       datasetId: dataset.datasetId,
       name: dataset.name,
       createdAt: dataset.createdAt,
       updatedAt: dataset.updatedAt,
+      settings: dataset.settings,
     };
     await writeFile(manifestTemporary, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     files.push({ temporary: manifestTemporary, target: manifestTarget });
@@ -500,9 +143,26 @@ export class DatasetRepository {
     await rm(journalPath, { force: true });
   }
 
-  private async readOptionalTable(file: string): Promise<Array<Record<string, string>>> {
+  private async readOptionalTable(
+    file: string,
+    expectedHeaders: readonly string[],
+  ): Promise<CsvTableRecord[]> {
     const path = join(this.directory, file);
-    return (await exists(path)) ? csvToRecords(await readFile(path, "utf8")) : [];
+    if (!(await exists(path))) {
+      throw new Error(`Table requise absente : ${file}.`);
+    }
+    const contents = await readFile(path, "utf8");
+    const parsed = parseCsv(contents);
+    const headers = parsed.rows[0] ?? [];
+    if (
+      headers.length !== expectedHeaders.length ||
+      headers.some((header, index) => header !== expectedHeaders[index])
+    ) {
+      throw new Error(
+        `En-têtes invalides dans ${file}; le fichier peut appartenir à un autre format.`,
+      );
+    }
+    return csvToRecords(contents);
   }
   private assertReferences(dataset: Dataset): void {
     const errors = validateDatasetReferences(dataset);
@@ -515,9 +175,7 @@ export class DatasetRepository {
     if (!(await exists(journalPath))) {
       return;
     }
-    const transaction = JSON.parse(await readFile(journalPath, "utf8")) as {
-      files: TransactionFile[];
-    };
+    const transaction = parseTransactionJournal(await readFile(journalPath, "utf8"));
     for (const file of transaction.files) {
       if (await exists(file.temporary)) {
         await rename(file.temporary, file.target);
@@ -551,9 +209,7 @@ export class DatasetRepository {
   }
 }
 
-function emptyFromManifest(
-  manifest: Pick<Dataset, "schemaVersion" | "datasetId" | "name" | "createdAt" | "updatedAt">,
-): Dataset {
+function emptyFromManifest(manifest: DatasetManifest): Dataset {
   const base = createEmptyDataset(manifest.name);
   return {
     ...base,
@@ -561,32 +217,6 @@ function emptyFromManifest(
     schemaVersion: CURRENT_SCHEMA_VERSION,
     refugeZones: base.refugeZones,
   };
-}
-function normalizeCat(record: Record<string, string>) {
-  return {
-    ...record,
-    sex: record.sex || "UNKNOWN",
-    profile: record.profile || "ADULT",
-    sterilizationStatus: record.sterilizationStatus || "UNKNOWN",
-    adoptionEligibility: record.adoptionEligibility || "ELIGIBLE",
-    adoptionBlockedReason: record.adoptionBlockedReason || "",
-    healthStatus: record.healthStatus || "HEALTHY",
-    description: record.description || "",
-    photo: record.photo || "",
-    okWithCats: record.okWithCats === "true" ? true : record.okWithCats === "false" ? false : null,
-    okWithDogs: record.okWithDogs === "true" ? true : record.okWithDogs === "false" ? false : null,
-    okWithChildren:
-      record.okWithChildren === "true" ? true : record.okWithChildren === "false" ? false : null,
-    medications: record.medications || "",
-    medicationSchedule: record.medicationSchedule || "",
-    medicationEndDate: record.medicationEndDate || "",
-    vaccines: record.vaccines || "",
-    deworming: record.deworming || "",
-    antiFlea: record.antiFlea || "",
-  };
-}
-function splitProfiles(value: string): CatProfile[] {
-  return (value || "ADULT").split("|").filter(Boolean) as CatProfile[];
 }
 async function exists(path: string): Promise<boolean> {
   try {

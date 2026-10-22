@@ -1,7 +1,7 @@
-import type { Dataset, HealthAlert, HealthExposure } from "../shared/types";
+import type { Dataset, HealthAlert, HealthExposure } from "../core/types";
 
 interface LocationInterval {
-  catId: string;
+  animalId: string;
   locationType: "FAMILY" | "REFUGE_ZONE";
   locationId: string;
   locationLabel: string;
@@ -17,7 +17,7 @@ export function findHealthExposures(dataset: Dataset, alert: HealthAlert): Healt
   const intervals = buildIntervals(dataset, windowEnd);
   const sickIntervals = intervals.filter(
     (interval) =>
-      interval.catId === alert.catId &&
+      interval.animalId === alert.animalId &&
       overlaps(interval.start, interval.end, windowStart, windowEnd),
   );
   const seen = new Set<string>();
@@ -26,7 +26,7 @@ export function findHealthExposures(dataset: Dataset, alert: HealthAlert): Healt
   for (const sick of sickIntervals) {
     for (const candidate of intervals) {
       if (
-        candidate.catId === alert.catId ||
+        candidate.animalId === alert.animalId ||
         candidate.locationType !== sick.locationType ||
         candidate.locationId !== sick.locationId
       ) {
@@ -37,13 +37,13 @@ export function findHealthExposures(dataset: Dataset, alert: HealthAlert): Healt
       if (overlapStart > overlapEnd) {
         continue;
       }
-      const key = `${candidate.catId}:${candidate.locationType}:${candidate.locationId}:${overlapStart}:${overlapEnd}`;
+      const key = `${candidate.animalId}:${candidate.locationType}:${candidate.locationId}:${overlapStart}:${overlapEnd}`;
       if (seen.has(key)) {
         continue;
       }
       seen.add(key);
       exposures.push({
-        catId: candidate.catId,
+        animalId: candidate.animalId,
         locationType: candidate.locationType,
         locationId: candidate.locationId,
         locationLabel: candidate.locationLabel,
@@ -56,33 +56,38 @@ export function findHealthExposures(dataset: Dataset, alert: HealthAlert): Healt
 }
 
 function buildIntervals(dataset: Dataset, activeEnd: string): LocationInterval[] {
-  return [
-    ...dataset.fosterPlacements.map((placement) => ({
-      catId: placement.catId,
-      locationType: "FAMILY" as const,
-      locationId: placement.familyId,
-      locationLabel:
-        dataset.families.find((family) => family.id === placement.familyId)?.label ??
-        "Famille inconnue",
-      start: placement.startDate,
-      end: placement.endDate || activeEnd,
-    })),
-    ...dataset.refugeStays.map((stay) => ({
-      catId: stay.catId,
-      locationType: "REFUGE_ZONE" as const,
-      locationId: stay.zoneId,
-      locationLabel: `Le refuge · ${dataset.refugeZones.find((zone) => zone.id === stay.zoneId)?.name ?? "Zone inconnue"}`,
-      start: stay.startDate,
-      end: stay.endDate || activeEnd,
-    })),
+  const intervals: LocationInterval[] = [
+    ...dataset.fosterPlacements.map(
+      (placement): LocationInterval => ({
+        animalId: placement.animalId,
+        locationType: "FAMILY",
+        locationId: placement.familyId,
+        locationLabel:
+          dataset.families.find((family) => family.id === placement.familyId)?.label ??
+          "Famille inconnue",
+        start: placement.startDate,
+        end: placement.endDate || activeEnd,
+      }),
+    ),
+    ...dataset.refugeStays.map(
+      (stay): LocationInterval => ({
+        animalId: stay.animalId,
+        locationType: "REFUGE_ZONE",
+        locationId: stay.zoneId,
+        locationLabel: `Le refuge · ${dataset.refugeZones.find((zone) => zone.id === stay.zoneId)?.name ?? "Zone inconnue"}`,
+        start: stay.startDate,
+        end: stay.endDate || activeEnd,
+      }),
+    ),
   ];
+  return intervals;
 }
 
 function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
   return maxDate(aStart, bStart) <= minDate(aEnd, bEnd);
 }
 function maxDate(...values: string[]): string {
-  return values.sort().at(-1)!;
+  return values.sort().at(-1) ?? "";
 }
 function minDate(...values: string[]): string {
   return values.sort()[0];

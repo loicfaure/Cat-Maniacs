@@ -22,5 +22,14 @@ await Promise.all([
     external: ["electron"],
     sourcemap: true,
   }),
+  build({
+    entryPoints: ["src/migrationCliEntry.ts"],
+    outfile: "dist-electron/migrate.cjs",
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node22",
+    sourcemap: true,
+  }),
   viteBuild({ configLoader: "runner" }),
 ]);

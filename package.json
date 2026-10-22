@@ -15,20 +15,23 @@
     "npm": ">=12.2.0"
   },
   "scripts": {
+    "electron:install": "node node_modules/electron/install.js",
     "dev": "npm run build && node scripts/run-electron.mjs",
     "demo": "npm run build && node scripts/run-demo.mjs",
     "demo:workflow": "npm run build && node scripts/replay-demo-workflow.mjs",
     "build": "node scripts/build.mjs",
+    "migrate:model": "node scripts/migrate-model.mjs",
     "dist:linux": "npm run build && electron-builder --linux --x64 --publish never",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
     "privacy": "node scripts/check-publication.mjs",
     "privacy:history": "node scripts/check-publication.mjs --include-history",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --configLoader runner",
+    "test:coverage": "vitest run --coverage --configLoader runner",
     "test:watch": "vitest --configLoader runner",
-    "check": "npm run privacy && npm run lint && npm run typecheck && npm test && npm run build",
-    "lint": "biome check src scripts tests",
-    "lint:fix": "biome check --write --unsafe src scripts tests"
+    "check": "npm run privacy && npm run lint && npm run typecheck && npm run test:coverage && npm run build",
+    "lint": "biome check src scripts",
+    "lint:fix": "biome check --write --unsafe src scripts"
   },
   "dependencies": {
     "react": "19.3.1",
@@ -39,6 +42,7 @@
     "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@vitest/coverage-v8": "5.0.4",
     "electron": "44.7.2",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2",
