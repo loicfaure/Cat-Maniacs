@@ -145,11 +145,7 @@ function buildRow(
         Date.UTC(birth.getUTCFullYear() + 1, birth.getUTCMonth(), birth.getUTCDate()),
       );
       if (values.ageGroup.toLowerCase() === "chaton" && adoption >= oneYearLater) {
-        issue(
-          "ageGroup",
-          "warning",
-          "Catégorie Chaton incohérente avec un âge d'au moins un an.",
-        );
+        issue("ageGroup", "warning", "Catégorie Chaton incohérente avec un âge d'au moins un an.");
       }
     }
   }
