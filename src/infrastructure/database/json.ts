@@ -46,8 +46,39 @@ export function parseDatasetManifest(source: string): DatasetManifest {
       ...(parsed.settings.appearanceCatalog === undefined
         ? {}
         : { appearanceCatalog: parseAppearanceCatalog(parsed.settings.appearanceCatalog) }),
+      ...(parsed.settings.activityRecords === undefined
+        ? {}
+        : { activityRecords: parseActivityRecords(parsed.settings.activityRecords) }),
     },
   };
+}
+
+function parseActivityRecords(value: unknown): NonNullable<Dataset["settings"]["activityRecords"]> {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return false;
+      }
+      const record = item as Record<string, unknown>;
+      return (
+        typeof record.id === "string" &&
+        typeof record.animalId === "string" &&
+        typeof record.familyId === "string" &&
+        ["VETERINARY", "FOSTER", "BILL", "SUPPLY", "OTHER"].includes(String(record.category)) &&
+        typeof record.date === "string" &&
+        typeof record.title === "string" &&
+        (record.amount === null || typeof record.amount === "number") &&
+        typeof record.notes === "string" &&
+        typeof record.attachmentPath === "string" &&
+        typeof record.attachmentName === "string" &&
+        typeof record.createdAt === "string"
+      );
+    })
+  ) {
+    throw new Error("Les événements et factures du registre sont invalides.");
+  }
+  return value as NonNullable<Dataset["settings"]["activityRecords"]>;
 }
 
 function parseAppearanceCatalog(

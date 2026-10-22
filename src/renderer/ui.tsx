@@ -220,7 +220,7 @@ export function DateInput({ onChange, className, ...props }: DatePickerProps) {
       {...props}
       className={classes("date-input", className)}
       type="date"
-      lang="fr"
+      lang="fr-FR"
       onChange={(event) => onChange?.(event.currentTarget.value)}
     />
   );
@@ -232,7 +232,7 @@ export function DateTimeInput({ onChange, className, ...props }: DatePickerProps
       {...props}
       className={classes("datetime-input", className)}
       type="datetime-local"
-      lang="fr"
+      lang="fr-FR"
       onChange={(event) => onChange?.(event.currentTarget.value)}
     />
   );

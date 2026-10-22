@@ -331,9 +331,9 @@ export function AdoptabilityFields({
           value={value === "ON_HOLD" ? "UNKNOWN" : value}
           onChange={(event) => onChange(event.currentTarget.value as AdoptionEligibility)}
         >
-          <option value="UNKNOWN">Inconnu</option>
-          <option value="ELIGIBLE">Oui</option>
-          <option value="INELIGIBLE">Non</option>
+          <option value="UNKNOWN">❔ Inconnu</option>
+          <option value="ELIGIBLE">✅ Oui</option>
+          <option value="INELIGIBLE">⛔ Non</option>
         </select>
       </Field>
       {value === "INELIGIBLE" && (

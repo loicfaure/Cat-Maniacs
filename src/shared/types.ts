@@ -1,4 +1,5 @@
 import type {
+  ActivityRecordInput,
   AdopterInput,
   AdoptionDayInput,
   AdoptionDaySuggestionGroup,
@@ -167,5 +168,12 @@ export interface AnimalAppApi {
   acknowledgeEmail(id: string): Promise<AppSnapshot>;
   chooseEmailOutputDirectory(): Promise<string | null>;
   setEmailOutputDirectory(path: string): Promise<AppSnapshot>;
-  exportReadyEmails(): Promise<{ snapshot: AppSnapshot; exportedCount: number; directory: string }>;
+  exportReadyEmails(directory: string): Promise<{
+    snapshot: AppSnapshot;
+    exportedCount: number;
+    directory: string;
+  }>;
+  chooseActivityDocument(): Promise<{ attachmentPath: string; attachmentName: string } | null>;
+  createActivityRecord(input: ActivityRecordInput): Promise<AppSnapshot>;
+  openActivityDocument(relativePath: string): Promise<void>;
 }

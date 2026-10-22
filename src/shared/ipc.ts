@@ -45,4 +45,7 @@ export const IPC = {
   chooseEmailOutputDirectory: "emails:choose-output-directory",
   setEmailOutputDirectory: "emails:set-output-directory",
   exportReadyEmails: "emails:export-ready",
+  chooseActivityDocument: "activities:choose-document",
+  createActivityRecord: "activities:create-record",
+  openActivityDocument: "activities:open-document",
 };

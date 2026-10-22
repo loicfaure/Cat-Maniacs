@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -7,6 +7,7 @@ import {
   type IpcMainInvokeEvent,
   ipcMain,
   type MessageBoxOptions,
+  shell,
 } from "electron";
 import { AnimalService } from "../application/animalService";
 import { mutateDataset } from "../application/mutateDataset";
@@ -22,6 +23,7 @@ import { recoverStaleMigrationBeforeInspection } from "../infrastructure/migrati
 import { commitLegacyPreview, previewLegacyCsv } from "../legacy/legacyImport";
 import { IPC } from "../shared/ipc";
 import type {
+  ActivityRecordInput,
   AdopterInput,
   AdoptionDayInput,
   AdoptionInput,
@@ -324,7 +326,14 @@ function registerHandlers(): void {
     if (typeof enabled !== "boolean") {
       throw new Error("Mode de démonstration invalide.");
     }
-    const nextSnapshot = await activateMode(enabled);
+    let nextSnapshot: AppSnapshot;
+    if (enabled && demoMode) {
+      preferences.demoEnabledSpecies = ["cat"];
+      await saveAppPreferences(preferencesPath, preferences);
+      nextSnapshot = await openDataset(demoDatasetDirectory, true);
+    } else {
+      nextSnapshot = await activateMode(enabled);
+    }
     preferences.demoMode = enabled;
     if (!enabled) {
       preferences.demoWelcomeSeen = true;
@@ -668,14 +677,14 @@ function registerHandlers(): void {
     await saveAppPreferences(preferencesPath, preferences);
     return snapshot();
   });
-  handle(IPC.exportReadyEmails, async () => {
-    if (!preferences.emailOutputDirectory) {
-      throw new Error("Choisissez d’abord un dossier de destination.");
+  handle(IPC.exportReadyEmails, async (_event, directory: string) => {
+    if (typeof directory !== "string" || !directory.trim()) {
+      throw new Error("Choisissez un dossier de destination.");
     }
     const emails = (preferences.generatedEmailsByDataset[dataset.datasetId] ?? []).filter(
       (email) => !email.acknowledgedAt,
     );
-    await mkdir(preferences.emailOutputDirectory, { recursive: true });
+    await mkdir(directory, { recursive: true });
     for (const email of emails) {
       const safe = (value: string) => value.replace(/[\r\n]/g, " ");
       const encodedSubject = `=?UTF-8?B?${Buffer.from(safe(email.subject), "utf8").toString("base64")}?=`;
@@ -689,13 +698,102 @@ function registerHandlers(): void {
         email.body.replace(/\r?\n/g, "\r\n"),
         "",
       ].join("\r\n");
-      await writeFile(join(preferences.emailOutputDirectory, email.filename), content, "utf8");
+      await writeFile(join(directory, email.filename), content, "utf8");
     }
     return {
       snapshot: snapshot(),
       exportedCount: emails.length,
-      directory: preferences.emailOutputDirectory,
+      directory,
     };
+  });
+  handle(IPC.chooseActivityDocument, async () => {
+    const result = await dialog.showOpenDialog({ properties: ["openFile"] });
+    const source = result.filePaths[0];
+    if (result.canceled || !source) {
+      return null;
+    }
+    const directory = join(datasetPath, "documents");
+    await mkdir(directory, { recursive: true });
+    const originalName = basename(source).replace(/[\r\n]/g, "_");
+    const suffix = extname(originalName).slice(0, 16);
+    const storedName = `${crypto.randomUUID()}${suffix}`;
+    const relativePath = join("documents", storedName);
+    await copyFile(source, join(directory, storedName));
+    return { attachmentPath: relativePath, attachmentName: originalName };
+  });
+  handle(IPC.createActivityRecord, async (_event, input: ActivityRecordInput) => {
+    const categories = ["VETERINARY", "FOSTER", "BILL", "SUPPLY", "OTHER"];
+    if (
+      !input ||
+      !categories.includes(input.category) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(input.date) ||
+      !input.title?.trim()
+    ) {
+      throw new Error("L’événement est incomplet ou invalide.");
+    }
+    if (
+      input.amount !== undefined &&
+      input.amount !== null &&
+      (!Number.isFinite(input.amount) || input.amount < 0)
+    ) {
+      throw new Error("Le montant doit être positif ou nul.");
+    }
+    if (input.category === "BILL" && input.amount == null) {
+      throw new Error("Indiquez le montant de la facture.");
+    }
+    if (input.animalId && !dataset.animals.some((animal) => animal.id === input.animalId)) {
+      throw new Error("Animal introuvable.");
+    }
+    if (input.familyId && !dataset.families.some((family) => family.id === input.familyId)) {
+      throw new Error("Famille introuvable.");
+    }
+    if (!input.animalId && !input.familyId) {
+      throw new Error("L’événement doit être lié à un animal ou une famille.");
+    }
+    if (input.attachmentPath) {
+      const resolvedDocument = resolve(datasetPath, input.attachmentPath);
+      if (
+        isAbsolute(input.attachmentPath) ||
+        !relative(datasetPath, resolvedDocument).startsWith(
+          `documents${process.platform === "win32" ? "\\" : "/"}`,
+        )
+      ) {
+        throw new Error("Document joint invalide.");
+      }
+    }
+    const mutation = await mutateDataset(repository, dataset, (_service, draft) => {
+      draft.settings.activityRecords ??= [];
+      draft.settings.activityRecords.push({
+        id: crypto.randomUUID(),
+        animalId: input.animalId ?? "",
+        familyId: input.familyId ?? "",
+        category: input.category,
+        date: input.date,
+        title: input.title.trim(),
+        amount: input.amount ?? null,
+        notes: input.notes?.trim() ?? "",
+        attachmentPath: input.attachmentPath ?? "",
+        attachmentName: input.attachmentName ?? "",
+        createdAt: new Date().toISOString(),
+      });
+      draft.updatedAt = new Date().toISOString();
+    });
+    dataset = mutation.dataset;
+    return snapshot();
+  });
+  handle(IPC.openActivityDocument, async (_event, path: string) => {
+    if (typeof path !== "string" || isAbsolute(path)) {
+      throw new Error("Document invalide.");
+    }
+    const target = resolve(datasetPath, path);
+    const targetRelative = relative(datasetPath, target);
+    if (!targetRelative.startsWith(`documents${process.platform === "win32" ? "\\" : "/"}`)) {
+      throw new Error("Document invalide.");
+    }
+    const error = await shell.openPath(target);
+    if (error) {
+      throw new Error(error);
+    }
   });
   handle(IPC.chooseLegacyCsv, async () => {
     const result = await dialog.showOpenDialog({

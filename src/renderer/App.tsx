@@ -103,18 +103,6 @@ function profileLabel(speciesId: SpeciesId, profile: AnimalProfile): string {
 }
 const SEX_OPTIONS: readonly Sex[] = ["F", "M", "UNKNOWN"];
 const STERILIZATION_OPTIONS: readonly SterilizationStatus[] = ["DONE", "TODO", "UNKNOWN"];
-const STERILIZATION_FILTERS: readonly (SterilizationStatus | "ALL")[] = [
-  "ALL",
-  ...STERILIZATION_OPTIONS,
-];
-const STATUS_OPTIONS: readonly (AnimalStatus | "ALL")[] = [
-  "ALL",
-  "FOSTERED",
-  "AT_REFUGE",
-  "ADOPTED",
-  "LOST",
-  "DECEASED",
-];
 const SORT_OPTIONS: readonly AnimalSortField[] = ["name", "birthDate", "intakeDate", "updatedAt"];
 const ADOPTION_SORT_MODES: readonly ("date" | "animal")[] = ["date", "animal"];
 
@@ -204,6 +192,7 @@ export function App() {
   const [selectedAnimalId, setSelectedAnimalId] = useState<string | null>(null);
   const [emailAnimalId, setEmailAnimalId] = useState("");
   const [healthAnimalId, setHealthAnimalId] = useState<string | null>(null);
+  const [animalLocationFilters, setAnimalLocationFilters] = useState<string[]>([]);
   const [switchingDemo, setSwitchingDemo] = useState(false);
   useEffect(() => {
     window.catApp
@@ -226,6 +215,7 @@ export function App() {
   useEffect(() => {
     const showAnimal = (event: Event) => {
       if (event instanceof CustomEvent && typeof event.detail === "string") {
+        setPage("animals");
         setSelectedAnimalId(event.detail);
       }
     };
@@ -322,6 +312,7 @@ export function App() {
       ? (registeredSpecies.find((species) => species.id === snapshot.settings.enabledSpecies[0])
           ?.label.plural ?? "Animaux")
       : (PAGE_META.find((item) => item.id === page)?.label ?? "");
+  const selectedAnimal = snapshot.animalViews.find((animal) => animal.id === selectedAnimalId);
   return (
     <div
       className={`shell ${snapshot.settings.enabledSpecies.length > 1 ? "multi-species" : "single-species"}`}
@@ -344,6 +335,7 @@ export function App() {
               className={page === item.id ? "active" : ""}
               onClick={() => {
                 setHealthAnimalId(null);
+                setSelectedAnimalId(null);
                 setPage(item.id);
               }}
             >
@@ -407,7 +399,9 @@ export function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">Gestion associative</span>
-            <h1>{pageTitle}</h1>
+            <h1>
+              {selectedAnimalId ? `Modifier ${selectedAnimal?.name ?? "l’animal"}` : pageTitle}
+            </h1>
           </div>
           <div className="save-state">
             <span className="save-dot" />
@@ -416,50 +410,92 @@ export function App() {
         </header>
         {notice && <Notification notice={notice} onDismiss={dismissNotice} />}
         <div className="content">
-          {page === "dashboard" && <Dashboard snapshot={snapshot} navigate={setPage} run={run} />}
-          {page === "animals" && <AnimalsPage snapshot={snapshot} run={run} />}
-          {page === "families" && <FamiliesPage snapshot={snapshot} run={run} />}
-          {page === "adoptions" && <AdoptionsPage snapshot={snapshot} run={run} />}
-          {page === "adoptionDays" && (
-            <AdoptionDaysPage snapshot={snapshot} run={run} setNotice={setNotice} />
-          )}
-          {page === "refuge" && <RefugePage snapshot={snapshot} run={run} />}
-          {page === "import" && (
-            <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />
-          )}
-          {page === "care" &&
-            (healthAnimalId ? (
-              <HealthIssuePage
-                animalId={healthAnimalId}
-                snapshot={snapshot}
-                run={run}
-                setSnapshot={setSnapshot}
-                setNotice={setNotice}
-                back={() => setHealthAnimalId(null)}
-              />
-            ) : (
-              <CarePage snapshot={snapshot} run={run} />
-            ))}
-          {page === "email" && (
-            <EmailPage
+          {selectedAnimalId ? (
+            <AnimalDetail
+              key={selectedAnimalId}
+              animalId={selectedAnimalId}
               snapshot={snapshot}
-              initialAnimalId={emailAnimalId}
+              close={() => {
+                setSelectedAnimalId(null);
+                setPage("animals");
+              }}
+              goHealth={() => {
+                setHealthAnimalId(selectedAnimalId);
+                setSelectedAnimalId(null);
+                setPage("care");
+              }}
+              run={run}
               setSnapshot={setSnapshot}
               setNotice={setNotice}
+              setEmailAnimalId={setEmailAnimalId}
+              setPage={setPage}
             />
-          )}
-          {page === "sponsorships" && <SponsorshipsPage snapshot={snapshot} run={run} />}
-          {page === "settings" && (
-            <SettingsPage
-              snapshot={snapshot}
-              setSnapshot={(next) => {
-                setSnapshot(next);
-                setSelectedAnimalId(null);
-                setHealthAnimalId(null);
-                setEmailAnimalId("");
-              }}
-              setNotice={setNotice}
-            />
+          ) : (
+            <>
+              {page === "dashboard" && (
+                <Dashboard snapshot={snapshot} navigate={setPage} run={run} />
+              )}
+              {page === "animals" && (
+                <AnimalsPage
+                  snapshot={snapshot}
+                  run={run}
+                  selectedLocations={animalLocationFilters}
+                  setSelectedLocations={setAnimalLocationFilters}
+                />
+              )}
+              {page === "families" && <FamiliesPage snapshot={snapshot} run={run} />}
+              {page === "adoptions" && <AdoptionsPage snapshot={snapshot} run={run} />}
+              {page === "adoptionDays" && (
+                <AdoptionDaysPage snapshot={snapshot} run={run} setNotice={setNotice} />
+              )}
+              {page === "refuge" && (
+                <RefugePage
+                  snapshot={snapshot}
+                  run={run}
+                  onOpenZone={(zoneName) => {
+                    setAnimalLocationFilters([`Le refuge · ${zoneName}`]);
+                    setPage("animals");
+                  }}
+                />
+              )}
+              {page === "import" && (
+                <ImportPage snapshot={snapshot} setSnapshot={setSnapshot} setNotice={setNotice} />
+              )}
+              {page === "care" &&
+                (healthAnimalId ? (
+                  <HealthIssuePage
+                    animalId={healthAnimalId}
+                    snapshot={snapshot}
+                    run={run}
+                    setSnapshot={setSnapshot}
+                    setNotice={setNotice}
+                    back={() => setHealthAnimalId(null)}
+                  />
+                ) : (
+                  <CarePage snapshot={snapshot} run={run} />
+                ))}
+              {page === "email" && (
+                <EmailPage
+                  snapshot={snapshot}
+                  initialAnimalId={emailAnimalId}
+                  setSnapshot={setSnapshot}
+                  setNotice={setNotice}
+                />
+              )}
+              {page === "sponsorships" && <SponsorshipsPage snapshot={snapshot} run={run} />}
+              {page === "settings" && (
+                <SettingsPage
+                  snapshot={snapshot}
+                  setSnapshot={(next) => {
+                    setSnapshot(next);
+                    setSelectedAnimalId(null);
+                    setHealthAnimalId(null);
+                    setEmailAnimalId("");
+                  }}
+                  setNotice={setNotice}
+                />
+              )}
+            </>
           )}
         </div>
       </main>
@@ -507,24 +543,6 @@ export function App() {
             </small>
           </section>
         </div>
-      )}
-      {selectedAnimalId && (
-        <AnimalDetail
-          key={selectedAnimalId}
-          animalId={selectedAnimalId}
-          snapshot={snapshot}
-          close={() => setSelectedAnimalId(null)}
-          goHealth={() => {
-            setHealthAnimalId(selectedAnimalId);
-            setSelectedAnimalId(null);
-            setPage("care");
-          }}
-          run={run}
-          setSnapshot={setSnapshot}
-          setNotice={setNotice}
-          setEmailAnimalId={setEmailAnimalId}
-          setPage={setPage}
-        />
       )}
     </div>
   );
@@ -586,7 +604,44 @@ function Dashboard({
           <Button variant="ghost-light" onClick={() => navigate("adoptionDays")}>
             Préparer une journée
           </Button>
+          <Button variant="ghost-light" onClick={() => setAlertsOpen(!alertsOpen)}>
+            ⚠ Alertes · {openAlerts.length}
+          </Button>
         </div>
+        {alertsOpen && (
+          <div className="hero-alert-menu" aria-label="Alertes sanitaires">
+            {openAlerts.map((alert) => {
+              const cat = snapshot.animals.find((candidate) => candidate.id === alert.animalId)!;
+              return (
+                <article key={alert.id}>
+                  <div>
+                    <AnimalIdentity cat={cat} />
+                    <span>
+                      {alert.disease} · depuis le {formatDate(alert.declaredAt)}
+                    </span>
+                  </div>
+                  <Button
+                    variant="light"
+                    size="small"
+                    onClick={() =>
+                      void run(
+                        () =>
+                          window.catApp.resolveHealthAlert({
+                            alertId: alert.id,
+                            resolvedAt: localToday(),
+                          }),
+                        "Alerte sanitaire terminée.",
+                      )
+                    }
+                  >
+                    Terminer
+                  </Button>
+                </article>
+              );
+            })}
+            {!openAlerts.length && <p>Aucune alerte sanitaire active.</p>}
+          </div>
+        )}
       </section>
       <section className="metrics">
         <Metric label="Animaux enregistrés" value={snapshot.animals.length} tone="ink" />
@@ -667,51 +722,6 @@ function Dashboard({
             </div>
           ) : (
             <Empty text="Aucun mouvement enregistré." />
-          )}
-        </Panel>
-        <Panel
-          title="Alertes"
-          action={
-            <Button variant="text" onClick={() => setAlertsOpen(!alertsOpen)}>
-              {alertsOpen ? "Réduire" : "Ouvrir le menu →"}
-            </Button>
-          }
-        >
-          <button className="alert-summary" onClick={() => setAlertsOpen(!alertsOpen)}>
-            <strong>{openAlerts.length}</strong>
-            <span>alertes sanitaires actives</span>
-          </button>
-          {alertsOpen && (
-            <div className="alert-menu">
-              {openAlerts.map((alert) => {
-                const cat = snapshot.animals.find((candidate) => candidate.id === alert.animalId)!;
-                return (
-                  <article key={alert.id}>
-                    <AnimalIdentity cat={cat} />
-                    <span>
-                      {alert.disease} · depuis le {formatDate(alert.declaredAt)}
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="small"
-                      onClick={() =>
-                        void run(
-                          () =>
-                            window.catApp.resolveHealthAlert({
-                              alertId: alert.id,
-                              resolvedAt: localToday(),
-                            }),
-                          "Alerte sanitaire terminée.",
-                        )
-                      }
-                    >
-                      Terminer l'alerte
-                    </Button>
-                  </article>
-                );
-              })}
-              {!openAlerts.length && <Empty text="Aucune alerte sanitaire active." />}
-            </div>
           )}
         </Panel>
       </div>
@@ -805,7 +815,8 @@ function CareTaskAction({
   const [editing, setEditing] = useState(false);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const nextDueDate = String(data.get("nextDueDate"));
     void run(
       () =>
@@ -859,6 +870,19 @@ function EmailPage({
   setNotice: (notice: Notice | null) => void;
 }) {
   const [exporting, setExporting] = useState(false);
+  const pendingEmails = snapshot.generatedEmails.filter((email) => !email.acknowledgedAt);
+  const emailThemes = [
+    { key: "sterilisation", title: "Stérilisation" },
+    { key: "vaccination", title: "Vaccination" },
+    { key: "antiFlea", title: "Anti-puces" },
+    { key: "deworming", title: "Vermifuge" },
+    { key: "icad", title: "Changement ICAD" },
+  ]
+    .map((theme) => ({
+      ...theme,
+      emails: pendingEmails.filter((email) => email.reminderKey.startsWith(`${theme.key}:`)),
+    }))
+    .filter((theme) => theme.emails.length > 0);
   const hasSterilization = snapshot.settings.enabledSpecies.some((speciesId) =>
     registeredSpecies
       .find((species) => species.id === speciesId)
@@ -944,63 +968,39 @@ function EmailPage({
   return (
     <div className="page-stack">
       <PageHeader>
-        <p>Rappels prêts à envoyer et messages liés aux animaux</p>
-      </PageHeader>
-      <Panel
-        title={`Rappels prêts à envoyer (${snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length})`}
-        action={
-          <Button
-            disabled={exporting || !snapshot.generatedEmails.some((email) => !email.acknowledgedAt)}
-            onClick={async () => {
-              try {
-                setExporting(true);
-                let current = snapshot;
-                if (!current.emailOutputDirectory) {
-                  const directory = await window.catApp.chooseEmailOutputDirectory();
-                  if (!directory) {
-                    return;
-                  }
-                  current = await window.catApp.setEmailOutputDirectory(directory);
-                  setSnapshot(current);
-                }
-                const result = await window.catApp.exportReadyEmails();
-                setSnapshot(result.snapshot);
-                setNotice({
-                  kind: "success",
-                  text: `${result.exportedCount} e-mail(s) exporté(s) dans ${result.directory}.`,
-                });
-              } catch (error) {
-                setNotice({ kind: "error", text: errorMessage(error) });
-              } finally {
-                setExporting(false);
-              }
-            }}
-          >
-            {exporting ? "Export…" : "Exporter les .eml"}
-          </Button>
-        }
-      >
-        <div className="email-output-setting">
-          <span>Dossier : {snapshot.emailOutputDirectory || "à choisir"}</span>
-          <Button
-            variant="text"
-            onClick={async () => {
+        <p>{pendingEmails.length} rappel(s) prêt(s) à envoyer</p>
+        <Button
+          disabled={exporting || pendingEmails.length === 0}
+          onClick={async () => {
+            try {
+              setExporting(true);
               const directory = await window.catApp.chooseEmailOutputDirectory();
-              if (directory) {
-                setSnapshot(await window.catApp.setEmailOutputDirectory(directory));
+              if (!directory) {
+                return;
               }
-            }}
-          >
-            Choisir un dossier
-          </Button>
-        </div>
-        {snapshot.generatedEmails.filter((email) => !email.acknowledgedAt).length === 0 ? (
-          <Empty text="Aucun rappel prêt à envoyer." />
-        ) : (
-          <div className="email-queue">
-            {snapshot.generatedEmails
-              .filter((email) => !email.acknowledgedAt)
-              .map((email) => (
+              const result = await window.catApp.exportReadyEmails(directory);
+              setSnapshot(result.snapshot);
+              setNotice({
+                kind: "success",
+                text: `${result.exportedCount} e-mail(s) exporté(s) dans ${result.directory}.`,
+              });
+            } catch (error) {
+              setNotice({ kind: "error", text: errorMessage(error) });
+            } finally {
+              setExporting(false);
+            }
+          }}
+        >
+          {exporting ? "Export…" : "Exporter les .eml"}
+        </Button>
+      </PageHeader>
+      {pendingEmails.length === 0 ? (
+        <Empty text="Aucun rappel prêt à envoyer." />
+      ) : (
+        emailThemes.map((theme) => (
+          <Panel title={`${theme.title} (${theme.emails.length})`} key={theme.key}>
+            <div className="email-queue">
+              {theme.emails.map((email) => (
                 <article className="email-queue-item" key={email.id}>
                   <div>
                     <strong>{email.subject}</strong>
@@ -1024,9 +1024,10 @@ function EmailPage({
                   </Button>
                 </article>
               ))}
-          </div>
-        )}
-      </Panel>
+            </div>
+          </Panel>
+        ))
+      )}
       <Panel title="Préparer un e-mail">
         <div className="form-grid">
           <Field label="Type de message">
@@ -1279,38 +1280,262 @@ function SponsorshipsPage({ snapshot, run }: PageProps) {
   );
 }
 
-function AnimalsPage({ snapshot, run }: PageProps) {
+function AnimalsPage({
+  snapshot,
+  run,
+  selectedLocations,
+  setSelectedLocations,
+}: PageProps & {
+  selectedLocations: string[];
+  setSelectedLocations: (locations: string[]) => void;
+}) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<AnimalStatus | "ALL">("ALL");
-  const [sterilization, setSterilization] = useState<SterilizationStatus | "ALL">("ALL");
   const [sortBy, setSortBy] = useState<AnimalSortField>("intakeDate");
   const [direction, setDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [speciesFilter, setSpeciesFilter] = useState<SpeciesId | "ALL">("ALL");
+  const [filters, setFilters] = useState<Record<string, string[]>>(
+    (): Record<string, string[]> =>
+      selectedLocations.length ? { location: selectedLocations } : {},
+  );
+  const [activeFacetKey, setActiveFacetKey] = useState<string | null>(null);
+  const [draftFilter, setDraftFilter] = useState<string[]>([]);
+  const [facetQuery, setFacetQuery] = useState("");
+  const [facetSort, setFacetSort] = useState<"count" | "alpha">("count");
   const [showForm, setShowForm] = useState(false);
+  useEffect(() => setPage(1), [query, filters, sortBy, direction, pageSize]);
   const showSterilization = snapshot.settings.enabledSpecies.some((speciesId) =>
     registeredSpecies
       .find((species) => species.id === speciesId)
       ?.careCategories.includes("STERILISATION"),
   );
-  useEffect(
-    () => setPage(1),
-    [query, status, sterilization, sortBy, direction, pageSize, speciesFilter],
+  const facetValue = (animal: AppSnapshot["animalViews"][number], key: string): string => {
+    if (key.startsWith("compatibility:")) {
+      const speciesId = key.slice("compatibility:".length) as SpeciesId;
+      const value = animal.compatibilityBySpecies[speciesId];
+      return value == null ? "unknown" : value ? "yes" : "no";
+    }
+    switch (key) {
+      case "species":
+        return animal.speciesId;
+      case "status":
+        return animal.status;
+      case "profile":
+        return animal.profile;
+      case "sex":
+        return animal.sex;
+      case "sterilization":
+        return animal.sterilizationStatus;
+      case "adoption":
+        return animal.adoptionEligibility;
+      case "health":
+        return animal.healthStatus;
+      case "location":
+        return animal.currentLocationLabel || "Sans lieu actuel";
+      case "children":
+        return animal.okWithChildren == null ? "unknown" : animal.okWithChildren ? "yes" : "no";
+      case "breed":
+        return String(
+          (animal.speciesData as { breed?: string; taxon?: string }).breed ||
+            (animal.speciesData as { taxon?: string }).taxon ||
+            "Non renseigné",
+        );
+      case "birthYear":
+        return animal.birthDate.slice(0, 4) || "unknown";
+      case "intakeYear":
+        return animal.intakeDate.slice(0, 4) || "unknown";
+      case "photo":
+        return animal.photo ? "yes" : "no";
+      default:
+        return "";
+    }
+  };
+  const knownFacetValues: Record<string, Array<{ value: string; label: string }>> = {
+    species: snapshot.settings.enabledSpecies.map((speciesId) => ({
+      value: speciesId,
+      label:
+        registeredSpecies.find((species) => species.id === speciesId)?.label.plural ?? speciesId,
+    })),
+    status: Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label })),
+    profile: Array.from(new Set(snapshot.animalViews.map((animal) => animal.profile))).map(
+      (value) => ({
+        value,
+        label:
+          profileLabel(
+            snapshot.animalViews.find((animal) => animal.profile === value)?.speciesId ?? "cat",
+            value,
+          ) || "Inconnu",
+      }),
+    ),
+    sex: [
+      { value: "F", label: "Femelle" },
+      { value: "M", label: "Mâle" },
+      { value: "UNKNOWN", label: "Inconnu" },
+    ],
+    sterilization: [
+      { value: "DONE", label: "Faite" },
+      { value: "TODO", label: "À faire" },
+      { value: "UNKNOWN", label: "Inconnue" },
+    ],
+    adoption: [
+      { value: "ELIGIBLE", label: "Adoptable" },
+      { value: "ON_HOLD", label: "En attente" },
+      { value: "INELIGIBLE", label: "Non adoptable" },
+      { value: "UNKNOWN", label: "Inconnue" },
+    ],
+    health: [
+      { value: "HEALTHY", label: "Sain" },
+      { value: "SICK", label: "Malade" },
+      { value: "RECOVERED", label: "Rétabli" },
+    ],
+    children: [
+      { value: "yes", label: "Oui" },
+      { value: "no", label: "Non" },
+      { value: "unknown", label: "À tester" },
+    ],
+    photo: [
+      { value: "yes", label: "Avec photo" },
+      { value: "no", label: "Sans photo" },
+    ],
+  };
+  const uniqueValues = (key: string) =>
+    Array.from(new Set(snapshot.animalViews.map((animal) => facetValue(animal, key)))).filter(
+      Boolean,
+    );
+  for (const key of ["location", "breed", "birthYear", "intakeYear"]) {
+    knownFacetValues[key] = uniqueValues(key).map((value) => ({
+      value,
+      label: value === "unknown" ? "Non renseigné" : key.endsWith("Year") ? value : value,
+    }));
+  }
+  for (const speciesId of snapshot.settings.enabledSpecies) {
+    knownFacetValues[`compatibility:${speciesId}`] = [
+      { value: "yes", label: "Oui" },
+      { value: "no", label: "Non" },
+      { value: "unknown", label: "À tester" },
+    ];
+  }
+  const facetTitles: Record<string, string> = {
+    species: "Espèce",
+    status: "Statut",
+    profile: "Profil / âge",
+    sex: "Sexe",
+    sterilization: "Stérilisation",
+    adoption: "Adoptabilité",
+    health: "Santé",
+    location: "Lieu",
+    children: "Avec les enfants",
+    breed: "Race / variété",
+    birthYear: "Année de naissance",
+    intakeYear: "Année d’arrivée",
+    photo: "Photo",
+    ...Object.fromEntries(
+      snapshot.settings.enabledSpecies.map((speciesId) => [
+        `compatibility:${speciesId}`,
+        `Compatibilité · ${registeredSpecies.find((species) => species.id === speciesId)?.label.plural.toLocaleLowerCase("fr-FR")}`,
+      ]),
+    ),
+  };
+  const facets = Object.entries(knownFacetValues)
+    .filter(([key]) => key !== "sterilization" || showSterilization)
+    .map(([key, values]) => ({
+      key,
+      title: facetTitles[key] ?? key,
+      options: values
+        .map((option) => ({
+          ...option,
+          count: snapshot.animalViews.filter((animal) => facetValue(animal, key) === option.value)
+            .length,
+        }))
+        .filter((option) => option.count > 0)
+        .sort((left, right) =>
+          left.label.localeCompare(right.label, "fr", { sensitivity: "base" }),
+        ),
+    }));
+  const activeFacet = facets.find((facet) => facet.key === activeFacetKey);
+  const openFacet = (key: string) => {
+    setActiveFacetKey(key);
+    setDraftFilter(filters[key] ?? []);
+    setFacetQuery("");
+    setFacetSort("count");
+  };
+  const updateFacet = (key: string, values: string[]) => {
+    setFilters((current) => {
+      const next = { ...current };
+      if (values.length) {
+        next[key] = values;
+      } else {
+        delete next[key];
+      }
+      return next;
+    });
+    if (key === "location") {
+      setSelectedLocations(values);
+    }
+  };
+  const activeFilterEntries = Object.entries(filters).filter(([, values]) => values.length > 0);
+  const filteredAnimals = snapshot.animalViews.filter((animal) =>
+    activeFilterEntries.every(([key, values]) => values.includes(facetValue(animal, key))),
   );
-  const filteredAnimals =
-    speciesFilter === "ALL"
-      ? snapshot.animalViews
-      : snapshot.animalViews.filter((animal) => animal.speciesId === speciesFilter);
   const table = buildAnimalTable(filteredAnimals, snapshot.families, {
     query,
-    status,
-    sterilization,
+    status: "ALL",
+    sterilization: "ALL",
     sortBy,
     direction,
     page,
     pageSize,
   });
+  const previewAnimals = activeFacetKey
+    ? snapshot.animalViews.filter((animal) =>
+        Object.entries(filters)
+          .filter(([key]) => key !== activeFacetKey)
+          .every(([key, values]) => values.includes(facetValue(animal, key))),
+      )
+    : [];
+  const facetChoices = (activeFacet?.options ?? [])
+    .map((option) => ({
+      ...option,
+      count: previewAnimals.filter(
+        (animal) => facetValue(animal, activeFacetKey ?? "") === option.value,
+      ).length,
+    }))
+    .filter((option) => {
+      const normalized = option.label
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("fr-FR");
+      return normalized.includes(
+        facetQuery
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLocaleLowerCase("fr-FR"),
+      );
+    })
+    .sort((left, right) =>
+      facetSort === "alpha"
+        ? left.label.localeCompare(right.label, "fr", { sensitivity: "base" })
+        : right.count - left.count ||
+          left.label.localeCompare(right.label, "fr", { sensitivity: "base" }),
+    );
+  const draftPreviewTotal = activeFacet
+    ? buildAnimalTable(
+        previewAnimals.filter(
+          (animal) =>
+            draftFilter.length === 0 || draftFilter.includes(facetValue(animal, activeFacet.key)),
+        ),
+        snapshot.families,
+        {
+          query,
+          status: "ALL",
+          sterilization: "ALL",
+          sortBy,
+          direction,
+          page: 1,
+          pageSize,
+        },
+      ).total
+    : table.total;
   return (
     <div className="page-stack">
       <div className="registry-toolbar">
@@ -1326,46 +1551,8 @@ function AnimalsPage({ snapshot, run }: PageProps) {
             : `+ Nouveau ${snapshot.settings.enabledSpecies.length === 1 ? registeredSpecies.find((species) => species.id === snapshot.settings.enabledSpecies[0])?.label.singular : "animal"}`}
         </Button>
       </div>
-      <FilterBar label="Filtres du registre">
-        <SpeciesFilter
-          enabledSpecies={snapshot.settings.enabledSpecies}
-          value={speciesFilter}
-          onChange={setSpeciesFilter}
-        />
-        <Field label="Statut">
-          <select
-            value={status}
-            onChange={(event) => setStatus(optionValue(event.target.value, STATUS_OPTIONS, "ALL"))}
-          >
-            <option value="ALL">Tous les statuts</option>
-            {Object.entries(STATUS_LABEL).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {showSterilization && (
-          <Field label="Stérilisation">
-            <select
-              value={sterilization}
-              onChange={(event) =>
-                setSterilization(optionValue(event.target.value, STERILIZATION_FILTERS, "ALL"))
-              }
-            >
-              <option value="ALL">Toute stérilisation</option>
-              <option value="DONE">Stérilisé</option>
-              <option value="TODO">À stériliser</option>
-              <option value="UNKNOWN">Non renseigné</option>
-            </select>
-          </Field>
-        )}
-      </FilterBar>
+      {showForm && <AnimalForm snapshot={snapshot} run={run} done={() => setShowForm(false)} />}
       <div className="sort-toolbar" data-density="compact">
-        <strong>
-          {table.total} {table.total === 1 ? "animal" : "animaux"}
-        </strong>
-        <span>sur {snapshot.animals.length}</span>
         <Field label={<>Trier par </>}>
           <select
             value={sortBy}
@@ -1388,7 +1575,73 @@ function AnimalsPage({ snapshot, run }: PageProps) {
           {direction === "asc" ? "↑ Croissant" : "↓ Décroissant"}
         </Button>
       </div>
-      {showForm && <AnimalForm snapshot={snapshot} run={run} done={() => setShowForm(false)} />}
+      <div className="registry-filter-triggers" role="group" aria-label="Filtres du registre">
+        {facets.map((facet) => {
+          const selectedCount = filters[facet.key]?.length ?? 0;
+          return (
+            <button
+              className={`registry-filter-trigger ${selectedCount ? "selected" : ""}`}
+              type="button"
+              key={facet.key}
+              onClick={() => openFacet(facet.key)}
+            >
+              {selectedCount > 0 && <small>{selectedCount}</small>}
+              {facet.title}
+            </button>
+          );
+        })}
+      </div>
+      <div className="registry-applied-filters">
+        <strong>
+          {table.total} {table.total === 1 ? "résultat" : "résultats"}
+        </strong>
+        {activeFilterEntries.map(([key, values]) => {
+          const facet = facets.find((item) => item.key === key);
+          return values.map((value) => {
+            const label = facet?.options.find((option) => option.value === value)?.label ?? value;
+            return (
+              <span className="registry-filter-chip" key={`${key}:${value}`}>
+                <span>
+                  {facet?.title}: {label}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Retirer le filtre ${facet?.title ?? key} : ${label}`}
+                  onClick={() =>
+                    updateFacet(
+                      key,
+                      values.filter((item) => item !== value),
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </span>
+            );
+          });
+        })}
+        {query && (
+          <span className="registry-filter-chip">
+            <span>Recherche : {query}</span>
+            <button type="button" aria-label="Effacer la recherche" onClick={() => setQuery("")}>
+              ×
+            </button>
+          </span>
+        )}
+        {(activeFilterEntries.length > 0 || query) && (
+          <Button
+            variant="text"
+            size="small"
+            onClick={() => {
+              setFilters({});
+              setSelectedLocations([]);
+              setQuery("");
+            }}
+          >
+            Réinitialiser
+          </Button>
+        )}
+      </div>
       <section className="registry-table-panel">
         <div className="table-wrap">
           <table className="registry-table">
@@ -1484,6 +1737,102 @@ function AnimalsPage({ snapshot, run }: PageProps) {
           </div>
         </div>
       </section>
+      {activeFacet && (
+        <div className="registry-filter-backdrop" onMouseDown={() => setActiveFacetKey(null)}>
+          <section
+            className="registry-filter-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="registry-filter-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <Button
+                variant="text"
+                size="icon"
+                aria-label="Fermer les filtres"
+                onClick={() => setActiveFacetKey(null)}
+              >
+                ←
+              </Button>
+              <h2 id="registry-filter-title">{activeFacet.title}</h2>
+              <Button
+                variant="text"
+                size="icon"
+                aria-label="Fermer"
+                onClick={() => setActiveFacetKey(null)}
+              >
+                ×
+              </Button>
+            </header>
+            <div className="registry-facet-sort" role="group" aria-label="Trier les choix">
+              <button
+                type="button"
+                className={facetSort === "count" ? "active" : ""}
+                onClick={() => setFacetSort("count")}
+              >
+                Quantité
+              </button>
+              <button
+                type="button"
+                className={facetSort === "alpha" ? "active" : ""}
+                onClick={() => setFacetSort("alpha")}
+              >
+                A → Z
+              </button>
+            </div>
+            <SearchField
+              label={`Rechercher parmi : ${activeFacet.title}`}
+              placeholder="Rechercher une valeur…"
+              value={facetQuery}
+              onChange={(event) => setFacetQuery(event.target.value)}
+            />
+            <div className="registry-facet-options">
+              {facetChoices.map((option) => (
+                <Checkbox
+                  key={option.value}
+                  className="registry-facet-option"
+                  layout="row"
+                  checked={draftFilter.includes(option.value)}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setDraftFilter((current) =>
+                      checked
+                        ? [...current, option.value]
+                        : current.filter((value) => value !== option.value),
+                    );
+                  }}
+                  trailing={<small>({option.count})</small>}
+                >
+                  {option.label}
+                </Checkbox>
+              ))}
+              {facetChoices.length === 0 && <Empty text="Aucune valeur trouvée." />}
+            </div>
+            <footer>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  updateFacet(activeFacet.key, draftFilter);
+                  setActiveFacetKey(null);
+                }}
+              >
+                Afficher · {draftPreviewTotal}
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => {
+                  setDraftFilter([]);
+                  updateFacet(activeFacet.key, []);
+                  setActiveFacetKey(null);
+                }}
+              >
+                Réinitialiser
+              </Button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -1605,6 +1954,13 @@ function AnimalDetail({
   const [cropScale, setCropScale] = useState(75);
   const [cropOpen, setCropOpen] = useState(false);
   const [showHistoryForm, setShowHistoryForm] = useState(false);
+  const [activityCategory, setActivityCategory] = useState<
+    "VETERINARY" | "FOSTER" | "BILL" | "OTHER"
+  >("VETERINARY");
+  const [eventDocument, setEventDocument] = useState<{
+    attachmentPath: string;
+    attachmentName: string;
+  } | null>(null);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [historyWidth, setHistoryWidth] = useState(33);
   const events = snapshot.animalEvents
@@ -1655,10 +2011,31 @@ function AnimalDetail({
           : careTypeLabel(task.type),
       notes: task.notes,
     }));
-  const history = [...events, ...placements, ...adoptions, ...stays, ...taskHistory].sort((a, b) =>
-    b.date.localeCompare(a.date),
+  const activityHistory = (snapshot.settings.activityRecords ?? [])
+    .filter((record) => record.animalId === animalId)
+    .map((record) => ({
+      id: record.id,
+      deletable: false,
+      date: record.date,
+      title: record.title,
+      notes: `${record.category === "BILL" ? "Facture" : record.category === "VETERINARY" ? "Vétérinaire" : record.category === "FOSTER" ? "Famille d’accueil" : "Événement"}${record.amount !== null ? ` · ${record.amount.toFixed(2)} €` : ""}${record.notes ? ` · ${record.notes}` : ""}`,
+      attachmentPath: record.attachmentPath,
+      attachmentName: record.attachmentName,
+    }));
+  const history = [
+    ...events,
+    ...placements,
+    ...adoptions,
+    ...stays,
+    ...taskHistory,
+    ...activityHistory,
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  const compatibilitySpecies = snapshot.settings.enabledSpecies.filter(
+    (speciesId) =>
+      (speciesId !== "snake" || cat.speciesId === "snake") &&
+      (speciesId !== "rabbit" || cat.speciesId === "rabbit"),
   );
-  const reminderDateFor = (kind: "vaccin" | "vermifuge" | "anti-puce" | "médicament") =>
+  const reminderTaskFor = (kind: "vaccin" | "vermifuge" | "anti-puce" | "médicament") =>
     snapshot.tasks
       .filter(
         (task) =>
@@ -1668,42 +2045,47 @@ function AnimalDetail({
             ? task.type === "ANTI_PUCE" || task.type.toLowerCase().includes(kind)
             : task.type.toLowerCase().includes(kind)),
       )
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.dueDate;
-  const saveAnimalProfile = (event: FormEvent<HTMLFormElement>) => {
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  const reminderDateFor = (kind: "vaccin" | "vermifuge" | "anti-puce" | "médicament") =>
+    reminderTaskFor(kind)?.dueDate;
+  const saveAnimalProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const yesNo = (key: string) =>
       String(data.get(key)) === "unknown" ? null : String(data.get(key)) === "yes";
-    void cropPhotoToSquare(photo, cropX, cropY, cropScale).then((savedPhoto) =>
-      run(
-        () =>
-          window.catApp.updateAnimal({
-            id: animalId,
-            description: String(data.get("description")),
-            photo: savedPhoto,
-            compatibilityBySpecies: {
-              ...cat.compatibilityBySpecies,
-              ...Object.fromEntries(
-                snapshot.settings.enabledSpecies.map((speciesId) => [speciesId, yesNo(speciesId)]),
-              ),
-            },
-            speciesData,
-            okWithChildren: yesNo("children"),
-            medications: String(data.get("medications")),
-            vaccines: String(data.get("vaccines")),
-            deworming: String(data.get("deworming")),
-            antiFlea: String(data.get("antiFlea")),
-            adoptionEligibility,
-            adoptionBlockedReason:
-              adoptionEligibility === "INELIGIBLE"
-                ? String(data.get("reason") ?? "")
-                : adoptionEligibility === "ON_HOLD"
-                  ? cat.adoptionBlockedReason
-                  : "",
-          }),
-        "Fiche de l’animal mise à jour.",
-      ),
-    );
+    try {
+      const savedPhoto = await cropPhotoToSquare(photo, cropX, cropY, cropScale);
+      setSnapshot(
+        await window.catApp.updateAnimal({
+          id: animalId,
+          description: String(data.get("description")),
+          photo: savedPhoto,
+          compatibilityBySpecies: {
+            ...cat.compatibilityBySpecies,
+            ...Object.fromEntries(
+              compatibilitySpecies.map((speciesId) => [speciesId, yesNo(speciesId)]),
+            ),
+          },
+          speciesData,
+          okWithChildren: cat.speciesId === "snake" ? false : yesNo("children"),
+          medications: String(data.get("medications")),
+          vaccines: String(data.get("vaccines")),
+          deworming: String(data.get("deworming")),
+          antiFlea: String(data.get("antiFlea")),
+          adoptionEligibility,
+          adoptionBlockedReason:
+            adoptionEligibility === "INELIGIBLE"
+              ? String(data.get("reason") ?? "")
+              : adoptionEligibility === "ON_HOLD"
+                ? cat.adoptionBlockedReason
+                : "",
+        }),
+      );
+      setNotice({ kind: "success", text: "Fiche de l’animal mise à jour." });
+      close();
+    } catch (error) {
+      setNotice({ kind: "error", text: errorMessage(error) });
+    }
   };
   const readPhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -1732,381 +2114,468 @@ function AnimalDetail({
   };
   const recordHistory = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const nextDate = String(data.get("nextDate"));
-    void run(
-      () =>
-        window.catApp.recordAnimalHistory({
+    void (async () => {
+      try {
+        let updated = await window.catApp.createActivityRecord({
           animalId,
+          category: String(data.get("category")) as "VETERINARY" | "FOSTER" | "BILL" | "OTHER",
           date: String(data.get("date")),
           title: String(data.get("title")),
+          amount: data.get("amount") ? Number(data.get("amount")) : null,
           notes: String(data.get("notes")),
-          nextDate: nextDate || undefined,
-        }),
-      "Événement ajouté.",
-    ).then(() => setShowHistoryForm(false));
+          ...eventDocument,
+        });
+        if (nextDate) {
+          updated = await window.catApp.recordAnimalHistory({
+            animalId,
+            date: String(data.get("date")),
+            title: String(data.get("title")),
+            notes: String(data.get("notes")),
+            nextDate,
+          });
+        }
+        setSnapshot(updated);
+        setNotice({ kind: "success", text: "Événement ajouté." });
+        setShowHistoryForm(false);
+        setEventDocument(null);
+      } catch (error) {
+        setNotice({ kind: "error", text: errorMessage(error) });
+      }
+    })();
   };
   const hasActiveSupporter = snapshot.sponsorships.some(
     (item) => item.animalId === animalId && !item.endDate,
   );
   const openHealthPage = () => goHealth();
   return (
-    <div className="drawer-backdrop" onMouseDown={close}>
-      <aside className="drawer cat-detail-dialog" onMouseDown={(event) => event.stopPropagation()}>
-        <header className="cat-detail-header">
-          <div className="detail-title">
-            <div className="table-avatar large cat-detail-avatar">
-              {photo ? (
-                <img
-                  src={photo}
-                  alt={`Photo de ${cat.name}`}
-                  style={{ "--photo-position": `${cropX}% ${cropY}%` } as CSSProperties}
-                />
-              ) : (
-                cat.name.slice(0, 1)
-              )}
-            </div>
-            <div>
-              <Badge className={`status ${cat.status.toLowerCase()}`}>
-                {STATUS_LABEL[cat.status]}
-              </Badge>
-              <h2 className="cat-name-icad">
-                {cat.name}
-                {cat.identificationNumber && (
-                  <>
-                    - {cat.identificationNumber}
-                    <Button
-                      variant="secondary"
-                      size="icon"
-                      type="button"
-                      className="copy-icad"
-                      title={
-                        cat.identificationScheme === "ICAD"
-                          ? "Copier le numéro ICAD"
-                          : "Copier le numéro d'identification"
-                      }
-                      aria-label={
-                        cat.identificationScheme === "ICAD"
-                          ? "Copier le numéro ICAD"
-                          : "Copier le numéro d'identification"
-                      }
-                      onClick={() => void navigator.clipboard.writeText(cat.identificationNumber)}
-                    >
-                      ▢
-                    </Button>
-                  </>
-                )}
-              </h2>
-              <p>
-                {cat.currentLocationLabel || "Sans lieu actuel"} ·{" "}
-                {profileLabel(cat.speciesId, cat.profile)}
-              </p>
-            </div>
+    <div className="animal-editor-page">
+      <header className="cat-detail-header">
+        <div className="detail-title">
+          <div className="table-avatar large cat-detail-avatar">
+            {photo ? (
+              <img
+                src={photo}
+                alt={`Photo de ${cat.name}`}
+                style={{ "--photo-position": `${cropX}% ${cropY}%` } as CSSProperties}
+              />
+            ) : (
+              cat.name.slice(0, 1)
+            )}
           </div>
-          <div className="detail-header-actions">
-            <Button variant="secondary" onClick={() => setShowHistoryForm(!showHistoryForm)}>
-              {showHistoryForm ? "Fermer les événements" : "+ Événement"}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!hasActiveSupporter}
-              title={!hasActiveSupporter ? "Cet animal n’a pas de parrain actif" : undefined}
-              onClick={() => {
-                setEmailAnimalId(animalId);
-                close();
-                setPage("email");
-              }}
-            >
-              ✉ Donner des nouvelles
-            </Button>
-            <div className="cat-action-menu-wrap">
-              <Button
-                variant="secondary"
-                aria-expanded={showActionMenu}
-                onClick={() => setShowActionMenu(!showActionMenu)}
-              >
-                Actions ▾
-              </Button>
-              {showActionMenu && (
-                <div className="cat-action-menu">
-                  <button
-                    onClick={() => {
-                      setShowActionMenu(false);
-                      openHealthPage();
-                    }}
+          <div>
+            <Badge className={`status ${cat.status.toLowerCase()}`}>
+              {STATUS_LABEL[cat.status]}
+            </Badge>
+            <h2 className="cat-name-icad">
+              {cat.name}
+              {cat.identificationNumber && (
+                <>
+                  - {cat.identificationNumber}
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    type="button"
+                    className="copy-icad"
+                    title={
+                      cat.identificationScheme === "ICAD"
+                        ? "Copier le numéro ICAD"
+                        : "Copier le numéro d'identification"
+                    }
+                    aria-label={
+                      cat.identificationScheme === "ICAD"
+                        ? "Copier le numéro ICAD"
+                        : "Copier le numéro d'identification"
+                    }
+                    onClick={() => void navigator.clipboard.writeText(cat.identificationNumber)}
                   >
-                    Déclarer un problème de santé
-                  </button>
-                  {cat.status !== "DECEASED" && (
-                    <AnimalDeathAction
-                      animalId={animalId}
-                      catName={cat.name}
-                      setSnapshot={setSnapshot}
-                      onStart={() => setShowActionMenu(false)}
-                    />
-                  )}
-                </div>
+                    ▢
+                  </Button>
+                </>
               )}
-            </div>
+            </h2>
+            <p>
+              {cat.currentLocationLabel || "Sans lieu actuel"} ·{" "}
+              {profileLabel(cat.speciesId, cat.profile)}
+            </p>
+          </div>
+        </div>
+        <div className="detail-header-actions">
+          <Button variant="secondary" onClick={() => setShowHistoryForm(!showHistoryForm)}>
+            {showHistoryForm ? "Fermer" : "+ Ajouter un événement"}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!hasActiveSupporter}
+            title={!hasActiveSupporter ? "Cet animal n’a pas de parrain actif" : undefined}
+            onClick={() => {
+              setEmailAnimalId(animalId);
+              close();
+              setPage("email");
+            }}
+          >
+            ✉ Donner des nouvelles
+          </Button>
+          <div className="cat-action-menu-wrap">
             <Button
               variant="secondary"
-              size="icon"
-              className="drawer-close"
-              onClick={close}
-              aria-label="Fermer"
+              aria-expanded={showActionMenu}
+              onClick={() => setShowActionMenu(!showActionMenu)}
             >
-              ×
+              Actions ▾
             </Button>
-          </div>
-        </header>
-        <p className="cat-birth-date">Né(e) le {formatDate(cat.birthDate)}</p>
-        <div
-          className="cat-detail-columns"
-          style={
-            {
-              "--detail-main-width": `${100 - historyWidth}fr`,
-              "--detail-history-width": `${historyWidth}fr`,
-            } as CSSProperties
-          }
-        >
-          <div className="cat-detail-main">
-            <Panel title="Profil et besoins">
-              <form className="form-grid cat-detail-form" onSubmit={saveAnimalProfile}>
-                <SpeciesDetailsFields
-                  speciesId={cat.speciesId}
-                  value={speciesData}
-                  onChange={setSpeciesData}
-                  catalog={snapshot.settings.appearanceCatalog?.[cat.speciesId]}
-                  animals={snapshot.animals}
-                />
-                <Field label="Description" wide>
-                  <textarea
-                    name="description"
-                    rows={2}
-                    defaultValue={cat.description}
-                    placeholder="Caractère, habitudes, conseils"
+            {showActionMenu && (
+              <div className="cat-action-menu">
+                <button
+                  onClick={() => {
+                    setShowActionMenu(false);
+                    openHealthPage();
+                  }}
+                >
+                  Déclarer un problème de santé
+                </button>
+                {cat.status !== "DECEASED" && (
+                  <AnimalDeathAction
+                    animalId={animalId}
+                    catName={cat.name}
+                    setSnapshot={setSnapshot}
+                    onStart={() => setShowActionMenu(false)}
                   />
-                </Field>
-                <Field label="Photo depuis votre ordinateur" wide>
-                  <input type="file" accept="image/*" onChange={readPhoto} />
-                  {photo && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="crop-open-button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setCropOpen(true);
-                      }}
-                    >
-                      Recadrer la photo
-                    </Button>
-                  )}
-                </Field>
-                <AdoptabilityFields
-                  value={adoptionEligibility}
-                  onChange={setAdoptionEligibility}
-                  reasonName="reason"
-                  reason={cat.adoptionBlockedReason}
+                )}
+              </div>
+            )}
+          </div>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="drawer-close"
+            onClick={close}
+            aria-label="Retour à la liste des animaux"
+            title="Retour à la liste des animaux"
+          >
+            ← Retour
+          </Button>
+        </div>
+      </header>
+      <p className="cat-birth-date">Né(e) le {formatDate(cat.birthDate)}</p>
+      <div
+        className="cat-detail-columns"
+        style={
+          {
+            "--detail-main-width": `${100 - historyWidth}fr`,
+            "--detail-history-width": `${historyWidth}fr`,
+          } as CSSProperties
+        }
+      >
+        <div className="cat-detail-main">
+          <Panel title="Profil et besoins">
+            <form className="form-grid cat-detail-form" onSubmit={saveAnimalProfile}>
+              <SpeciesDetailsFields
+                speciesId={cat.speciesId}
+                value={speciesData}
+                onChange={setSpeciesData}
+                catalog={snapshot.settings.appearanceCatalog?.[cat.speciesId]}
+                animals={snapshot.animals}
+              />
+              <Field label="Description" wide>
+                <textarea
+                  name="description"
+                  rows={2}
+                  defaultValue={cat.description}
+                  placeholder="Caractère, habitudes, conseils"
                 />
-                {snapshot.settings.enabledSpecies.length > 1 &&
-                  snapshot.settings.enabledSpecies.map((speciesId) => {
-                    const species = registeredSpecies.find((item) => item.id === speciesId)!;
-                    return (
-                      <CompatibilityChoices
-                        key={speciesId}
-                        name={speciesId}
-                        label={`Avec les ${species.label.plural.toLocaleLowerCase("fr-FR")}`}
-                        value={cat.compatibilityBySpecies[speciesId]}
-                      />
-                    );
-                  })}
+              </Field>
+              <Field label="Photo depuis votre ordinateur" wide>
+                <input type="file" accept="image/*" onChange={readPhoto} />
+                {photo && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="crop-open-button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setCropOpen(true);
+                    }}
+                  >
+                    Recadrer la photo
+                  </Button>
+                )}
+              </Field>
+              <AdoptabilityFields
+                value={adoptionEligibility}
+                onChange={setAdoptionEligibility}
+                reasonName="reason"
+                reason={cat.adoptionBlockedReason}
+              />
+              {compatibilitySpecies.length > 1 &&
+                compatibilitySpecies.map((speciesId) => {
+                  const species = registeredSpecies.find((item) => item.id === speciesId)!;
+                  return (
+                    <CompatibilityChoices
+                      key={speciesId}
+                      name={speciesId}
+                      label={`Avec les ${species.label.plural.toLocaleLowerCase("fr-FR")}`}
+                      value={cat.compatibilityBySpecies[speciesId]}
+                    />
+                  );
+                })}
+              {cat.speciesId !== "snake" && (
                 <CompatibilityChoices
                   name="children"
                   label="Avec les enfants"
                   value={cat.okWithChildren}
                 />
-                <input type="hidden" name="medications" value={cat.medications || ""} />
-                <input type="hidden" name="vaccines" value={cat.vaccines || ""} />
-                <input type="hidden" name="deworming" value={cat.deworming || ""} />
-                <input type="hidden" name="antiFlea" value={cat.antiFlea || ""} />
-                <FormActions>
-                  <Button variant="primary">Enregistrer la fiche</Button>
-                </FormActions>
-              </form>
-            </Panel>
-            <Panel
-              title="Santé et soins"
-              action={<HealthAction animalId={animalId} status={cat.healthStatus} run={run} />}
-            >
-              <div className="health-care-grid">
+              )}
+              <input type="hidden" name="medications" value={cat.medications || ""} />
+              <input type="hidden" name="vaccines" value={cat.vaccines || ""} />
+              <input type="hidden" name="deworming" value={cat.deworming || ""} />
+              <input type="hidden" name="antiFlea" value={cat.antiFlea || ""} />
+              <FormActions>
+                <Button variant="primary">Enregistrer la fiche</Button>
+              </FormActions>
+            </form>
+          </Panel>
+          <Panel
+            title="Santé et soins"
+            action={<HealthAction animalId={animalId} status={cat.healthStatus} run={run} />}
+          >
+            <div className="health-care-grid">
+              <TreatmentAction
+                label="Médicaments"
+                field="medications"
+                value={cat.medications || ""}
+                schedule={cat.medicationSchedule || ""}
+                endDate={cat.medicationEndDate || ""}
+                reminderDate={reminderDateFor("médicament")}
+                reminderTaskId={reminderTaskFor("médicament")?.id}
+                animalId={animalId}
+                setSnapshot={setSnapshot}
+              />
+              {speciesDefinition.careCategories.includes("VACCIN") && (
                 <TreatmentAction
-                  label="Médicaments"
-                  field="medications"
-                  value={cat.medications || ""}
-                  schedule={cat.medicationSchedule || ""}
-                  endDate={cat.medicationEndDate || ""}
-                  reminderDate={reminderDateFor("médicament")}
+                  label="Vaccins"
+                  field="vaccines"
+                  value={cat.vaccines || ""}
+                  reminderDate={
+                    reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")
+                  }
+                  reminderTaskId={reminderTaskFor("vaccin")?.id}
                   animalId={animalId}
                   setSnapshot={setSnapshot}
                 />
-                {speciesDefinition.careCategories.includes("VACCIN") && (
-                  <TreatmentAction
-                    label="Vaccins"
-                    field="vaccines"
-                    value={cat.vaccines || ""}
-                    reminderDate={
-                      reminderDateFor("vaccin") || dateFromHealthMessage(cat.vaccines || "")
-                    }
-                    animalId={animalId}
-                    setSnapshot={setSnapshot}
-                  />
-                )}
-                {speciesDefinition.careCategories.includes("VERMIFUGE") && (
-                  <TreatmentAction
-                    label="Vermifuge"
-                    field="deworming"
-                    value={cat.deworming || ""}
-                    reminderDate={
-                      reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")
-                    }
-                    animalId={animalId}
-                    setSnapshot={setSnapshot}
-                  />
-                )}
-                {speciesDefinition.careCategories.includes("ANTI_PUCE") && (
-                  <TreatmentAction
-                    label="Anti-puce"
-                    field="antiFlea"
-                    value={cat.antiFlea || ""}
-                    reminderDate={
-                      reminderDateFor("anti-puce") || dateFromHealthMessage(cat.antiFlea || "")
-                    }
-                    animalId={animalId}
-                    setSnapshot={setSnapshot}
-                  />
-                )}
+              )}
+              {speciesDefinition.careCategories.includes("VERMIFUGE") && (
+                <TreatmentAction
+                  label="Vermifuge"
+                  field="deworming"
+                  value={cat.deworming || ""}
+                  reminderDate={
+                    reminderDateFor("vermifuge") || dateFromHealthMessage(cat.deworming || "")
+                  }
+                  reminderTaskId={reminderTaskFor("vermifuge")?.id}
+                  animalId={animalId}
+                  setSnapshot={setSnapshot}
+                />
+              )}
+              {speciesDefinition.careCategories.includes("ANTI_PUCE") && (
+                <TreatmentAction
+                  label="Anti-puce"
+                  field="antiFlea"
+                  value={cat.antiFlea || ""}
+                  reminderDate={
+                    reminderDateFor("anti-puce") || dateFromHealthMessage(cat.antiFlea || "")
+                  }
+                  reminderTaskId={reminderTaskFor("anti-puce")?.id}
+                  animalId={animalId}
+                  setSnapshot={setSnapshot}
+                />
+              )}
+            </div>
+          </Panel>
+        </div>
+        <div
+          className="column-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionner les événements"
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (event.buttons !== 1) {
+              return;
+            }
+            const bounds = event.currentTarget.parentElement!.getBoundingClientRect();
+            setHistoryWidth(
+              Math.max(
+                25,
+                Math.min(50, Math.round(((bounds.right - event.clientX) / bounds.width) * 100)),
+              ),
+            );
+          }}
+        />
+        <aside className="cat-history-sidebar">
+          <div className="cat-history-content">
+            <Panel title="Événements">
+              <div className="detail-history">
+                {history.map((item, index) => (
+                  <div key={`${item.date}-${item.title}-${index}`}>
+                    <time>{formatDate(item.date)}</time>
+                    <span />
+                    <p>
+                      <strong>{item.title}</strong>
+                      <small>{item.notes || "—"}</small>
+                    </p>
+                    {"attachmentPath" in item &&
+                      typeof item.attachmentPath === "string" &&
+                      item.attachmentPath && (
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            void window.catApp.openActivityDocument(item.attachmentPath as string)
+                          }
+                        >
+                          Document
+                        </Button>
+                      )}
+                    {item.deletable && item.id && (
+                      <Button
+                        variant="danger"
+                        size="icon"
+                        title="Supprimer cet événement"
+                        aria-label="Supprimer cet événement"
+                        onClick={() => {
+                          if (window.confirm("Supprimer cet événement ?")) {
+                            void run(
+                              () => window.catApp.deleteAnimalEvent(item.id!),
+                              "Événement supprimé.",
+                            );
+                          }
+                        }}
+                      >
+                        ×
+                      </Button>
+                    )}
+                  </div>
+                ))}
               </div>
             </Panel>
           </div>
-          <div
-            className="column-resizer"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Redimensionner les événements"
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              if (event.buttons !== 1) {
-                return;
-              }
-              const bounds = event.currentTarget.parentElement!.getBoundingClientRect();
-              setHistoryWidth(
-                Math.max(
-                  25,
-                  Math.min(50, Math.round(((bounds.right - event.clientX) / bounds.width) * 100)),
-                ),
-              );
-            }}
-          />
-          <aside className="cat-history-sidebar">
-            <div
-              className={
-                showHistoryForm ? "cat-history-content with-event-form" : "cat-history-content"
-              }
-            >
-              {showHistoryForm && (
-                <Panel title="Ajouter un événement">
-                  <form className="form-grid" onSubmit={recordHistory}>
-                    <Field label="Date">
-                      <DateInput name="date" defaultValue={localToday()} required />
-                    </Field>
-                    <Field label="Événement / action">
-                      <input
-                        name="title"
-                        required
-                        placeholder="Visite vétérinaire, comportement…"
-                      />
-                    </Field>
-                    <Field label="Prochaine échéance (facultatif)">
-                      <DateInput name="nextDate" />
-                    </Field>
-                    <Field label="Notes" wide>
-                      <textarea
-                        name="notes"
-                        rows={2}
-                        placeholder="Ce qui s’est passé, résultat, détails utiles…"
-                      />
-                    </Field>
-                    <FormActions>
-                      <Button variant="secondary">Ajouter l’événement</Button>
-                    </FormActions>
-                  </form>
-                  <p className="panel-intro">
-                    Une prochaine échéance créera aussi un rappel dans les événements.
-                  </p>
-                </Panel>
-              )}
-              <Panel title="Événements">
-                <div className="detail-history">
-                  {history.map((item, index) => (
-                    <div key={`${item.date}-${item.title}-${index}`}>
-                      <time>{formatDate(item.date)}</time>
-                      <span />
-                      <p>
-                        <strong>{item.title}</strong>
-                        <small>{item.notes || "—"}</small>
-                      </p>
-                      {item.deletable && item.id && (
-                        <Button
-                          variant="danger"
-                          size="icon"
-                          title="Supprimer cet événement"
-                          aria-label="Supprimer cet événement"
-                          onClick={() => {
-                            if (window.confirm("Supprimer cet événement ?")) {
-                              void run(
-                                () => window.catApp.deleteAnimalEvent(item.id!),
-                                "Événement supprimé.",
-                              );
-                            }
-                          }}
-                        >
-                          ×
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Panel>
-            </div>
-          </aside>
+        </aside>
+      </div>
+      {showHistoryForm && (
+        <div className="small-action-backdrop" onMouseDown={() => setShowHistoryForm(false)}>
+          <section
+            className="small-action-panel animal-event-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="animal-event-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="animal-event-header">
+              <div>
+                <span className="eyebrow">{cat.name}</span>
+                <h2 id="animal-event-title">Ajouter un événement</h2>
+              </div>
+              <Button
+                variant="secondary"
+                size="icon"
+                aria-label="Fermer"
+                onClick={() => setShowHistoryForm(false)}
+              >
+                ×
+              </Button>
+            </header>
+            <form className="form-grid" onSubmit={recordHistory}>
+              <Field label="Date">
+                <DateInput name="date" defaultValue={localToday()} required />
+              </Field>
+              <Field label="Type d’événement">
+                <select
+                  name="category"
+                  value={activityCategory}
+                  onChange={(event) =>
+                    setActivityCategory(event.target.value as typeof activityCategory)
+                  }
+                >
+                  <option value="VETERINARY">Vétérinaire</option>
+                  <option value="BILL">Facture</option>
+                  <option value="FOSTER">Famille d’accueil</option>
+                  <option value="OTHER">Autre</option>
+                </select>
+              </Field>
+              <Field label="Événement / action">
+                <input name="title" required placeholder="Visite vétérinaire, comportement…" />
+              </Field>
+              <Field label="Prochaine échéance (facultatif)">
+                <DateInput name="nextDate" />
+              </Field>
+              <Field label="Montant (€)">
+                <input
+                  name="amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required={activityCategory === "BILL"}
+                />
+              </Field>
+              <Field label="Notes" wide>
+                <textarea
+                  name="notes"
+                  rows={2}
+                  placeholder="Ce qui s’est passé, résultat, détails utiles…"
+                />
+              </Field>
+              <div className="activity-document wide">
+                <Button
+                  type="button"
+                  size="small"
+                  onClick={async () =>
+                    setEventDocument(await window.catApp.chooseActivityDocument())
+                  }
+                >
+                  Joindre un document
+                </Button>
+                <span>{eventDocument?.attachmentName ?? "Aucun document joint"}</span>
+              </div>
+              <FormActions>
+                <Button type="button" variant="secondary" onClick={() => setShowHistoryForm(false)}>
+                  Annuler
+                </Button>
+                <Button variant="primary">Ajouter l’événement</Button>
+              </FormActions>
+            </form>
+            <p className="panel-intro">
+              Une prochaine échéance créera aussi un rappel dans les événements.
+            </p>
+          </section>
         </div>
-        {cropOpen && (
-          <PhotoCropDialog
-            photo={pendingPhoto ?? photo}
-            initialX={cropX}
-            initialY={cropY}
-            initialScale={cropScale}
-            cancel={() => {
-              setCropOpen(false);
-              setPendingPhoto(null);
-            }}
-            apply={(x, y, scale) => {
-              if (pendingPhoto) {
-                setPhoto(pendingPhoto);
-              }
-              setPendingPhoto(null);
-              setCropX(x);
-              setCropY(y);
-              setCropScale(scale);
-              setCropOpen(false);
-            }}
-          />
-        )}
-      </aside>
+      )}
+      {cropOpen && (
+        <PhotoCropDialog
+          photo={pendingPhoto ?? photo}
+          initialX={cropX}
+          initialY={cropY}
+          initialScale={cropScale}
+          cancel={() => {
+            setCropOpen(false);
+            setPendingPhoto(null);
+          }}
+          apply={(x, y, scale) => {
+            if (pendingPhoto) {
+              setPhoto(pendingPhoto);
+            }
+            setPendingPhoto(null);
+            setCropX(x);
+            setCropY(y);
+            setCropScale(scale);
+            setCropOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2214,6 +2683,7 @@ function TreatmentAction({
   schedule = "",
   endDate = "",
   reminderDate,
+  reminderTaskId,
   animalId,
   setSnapshot,
 }: {
@@ -2223,6 +2693,7 @@ function TreatmentAction({
   schedule?: string;
   endDate?: string;
   reminderDate?: string;
+  reminderTaskId?: string;
   animalId: string;
   setSnapshot: (snapshot: AppSnapshot) => void;
 }) {
@@ -2268,6 +2739,7 @@ function TreatmentAction({
                 .join(" · ") || "Suivi de santé"
             : "Suivi de santé",
         nextDate: nextDate || undefined,
+        replaceTaskId: reminderTaskId,
       });
       setSnapshot(snapshot);
       setOpen(false);
@@ -2613,26 +3085,14 @@ function CompatibilityChoices({
   label: string;
   value: boolean | null | undefined;
 }) {
-  const [choice, setChoice] = useState(value == null ? "unknown" : value ? "yes" : "no");
-  const states = [
-    { value: "yes", label: "✅ Oui" },
-    { value: "no", label: "❌ Non" },
-    { value: "unknown", label: "🤔 À tester" },
-  ];
-  const current = states.findIndex((state) => state.value === choice);
   return (
-    <FieldGroup label={label} className="compatibility-field">
-      <Button
-        type="button"
-        variant="secondary"
-        className={`compatibility-cycle ${choice}`}
-        aria-label={`${label} : ${states[current].label}. Cliquer pour changer`}
-        onClick={() => setChoice(states[(current + 1) % states.length].value)}
-      >
-        {states[current].label} <small>↻</small>
-      </Button>
-      <input type="hidden" name={name} value={choice} />
-    </FieldGroup>
+    <Field label={label} className="compatibility-field">
+      <select name={name} defaultValue={value == null ? "unknown" : value ? "yes" : "no"}>
+        <option value="unknown">❔ À tester</option>
+        <option value="yes">✅ Oui</option>
+        <option value="no">⛔ Non</option>
+      </select>
+    </Field>
   );
 }
 
@@ -2778,6 +3238,28 @@ function FamiliesPage({ snapshot, run }: PageProps) {
   const [showPlacement, setShowPlacement] = useState(false);
   const [holidayFamilyId, setHolidayFamilyId] = useState("");
   const [holidayEditor, setHolidayEditor] = useState("");
+  const [acceptanceFilter, setAcceptanceFilter] = useState<"ALL" | "LARGE_DOG" | "SMALL_CAT">(
+    "ALL",
+  );
+  const [capacityFilter, setCapacityFilter] = useState<"ALL" | "FREE" | "FULL">("ALL");
+  const [detailsFamilyId, setDetailsFamilyId] = useState("");
+  const filteredFamilies = snapshot.families.filter((family) => {
+    const rule = family.acceptanceRules;
+    const accepts =
+      acceptanceFilter === "ALL" ||
+      (acceptanceFilter === "LARGE_DOG"
+        ? Boolean(rule?.dog && (!rule.dog.sizes?.length || rule.dog.sizes.includes("LARGE")))
+        : Boolean(
+            rule?.cat?.profiles.some((profile) => ["KITTEN", "BOTTLE_KITTEN"].includes(profile)),
+          ));
+    const occupied = snapshot.animalViews.filter(
+      (animal) => animal.currentFamilyId === family.id,
+    ).length;
+    const hasRoom = occupied < family.maxCapacity;
+    return (
+      accepts && (capacityFilter === "ALL" || (capacityFilter === "FREE" ? hasRoom : !hasRoom))
+    );
+  });
   return (
     <div className="page-stack">
       <PageHeader>
@@ -2801,8 +3283,39 @@ function FamiliesPage({ snapshot, run }: PageProps) {
           close={() => setHolidayFamilyId("")}
         />
       )}
+      <FilterBar label="Filtrer les familles">
+        <Field label="Accepte">
+          <select
+            value={acceptanceFilter}
+            onChange={(event) =>
+              setAcceptanceFilter(
+                optionValue(event.target.value, ["ALL", "LARGE_DOG", "SMALL_CAT"] as const, "ALL"),
+              )
+            }
+          >
+            <option value="ALL">Toutes les espèces et tailles</option>
+            <option value="LARGE_DOG">Grand chien</option>
+            <option value="SMALL_CAT">Petit chat / chaton</option>
+          </select>
+        </Field>
+        <Field label="Places">
+          <select
+            value={capacityFilter}
+            onChange={(event) =>
+              setCapacityFilter(
+                optionValue(event.target.value, ["ALL", "FREE", "FULL"] as const, "ALL"),
+              )
+            }
+          >
+            <option value="ALL">Avec ou sans place</option>
+            <option value="FREE">Place disponible</option>
+            <option value="FULL">Capacité atteinte</option>
+          </select>
+        </Field>
+        <Badge tone="neutral">{filteredFamilies.length} famille(s)</Badge>
+      </FilterBar>
       <div className="family-grid">
-        {snapshot.families.map((family) => {
+        {filteredFamilies.map((family) => {
           const animals = snapshot.animalViews.filter((cat) => cat.currentFamilyId === family.id);
           const holidays = snapshot.fosterFamilyHolidays.filter(
             (holiday) => holiday.familyId === family.id,
@@ -2823,22 +3336,6 @@ function FamiliesPage({ snapshot, run }: PageProps) {
               <p>
                 {family.email || "Pas d'e-mail"} · {family.phone || "Pas de téléphone"}
               </p>
-              <div className="tag-row">
-                {Object.entries(family.acceptanceRules ?? {}).flatMap(([speciesId, rule]) => {
-                  const species = registeredSpecies.find((item) => item.id === speciesId);
-                  if (!species || !rule) {
-                    return [];
-                  }
-                  return rule.profiles.map((profile) => (
-                    <Badge className="tag" key={`${speciesId}:${profile}`}>
-                      {snapshot.settings.enabledSpecies.length > 1
-                        ? `${species.label.plural} · `
-                        : ""}
-                      {species.profiles.find((item) => item.id === profile)?.label ?? profile}
-                    </Badge>
-                  ));
-                })}
-              </div>
               <div className="resident-list">
                 <small>
                   {snapshot.settings.enabledSpecies.length > 1
@@ -2881,6 +3378,21 @@ function FamiliesPage({ snapshot, run }: PageProps) {
               >
                 + Ajouter une indisponibilité
               </Button>
+              <Button
+                variant="text"
+                onClick={() => setDetailsFamilyId(detailsFamilyId === family.id ? "" : family.id)}
+              >
+                {detailsFamilyId === family.id ? "Masquer les détails" : "Détails et suivi →"}
+              </Button>
+              {detailsFamilyId === family.id && (
+                <div className="family-detail-summary">
+                  <strong>Accepte</strong>
+                  <p>{familyAcceptanceSummary(family)}</p>
+                  {family.address && <p>{family.address}</p>}
+                  {family.notes && <p>{family.notes}</p>}
+                  <FamilyActivityPanel family={family} snapshot={snapshot} run={run} />
+                </div>
+              )}
               {holidayEditor === family.id && (
                 <form
                   className="stack-form"
@@ -2918,7 +3430,147 @@ function FamiliesPage({ snapshot, run }: PageProps) {
           );
         })}
       </div>
+      {!filteredFamilies.length && <Empty text="Aucune famille ne correspond à ces filtres." />}
     </div>
+  );
+}
+
+function familyAcceptanceSummary(family: AppSnapshot["families"][number]): string {
+  const items = Object.entries(family.acceptanceRules ?? {}).flatMap(([speciesId, rule]) => {
+    const species = registeredSpecies.find((item) => item.id === speciesId);
+    if (!species || !rule) {
+      return [];
+    }
+    const profiles = rule.profiles.map(
+      (profile) => species.profiles.find((item) => item.id === profile)?.label ?? profile,
+    );
+    const profileSummary =
+      profiles.length > 3
+        ? `${profiles.slice(0, 3).join(", ")} +${profiles.length - 3}`
+        : profiles.join(", ");
+    const acceptedSizes: string[] = [];
+    if (speciesId === "dog" && rule.sizes?.length) {
+      acceptedSizes.push(
+        ...rule.sizes.map((size) =>
+          size === "LARGE" ? "grands chiens" : size === "SMALL" ? "petits chiens" : "chiens moyens",
+        ),
+      );
+    }
+    return profiles.length || acceptedSizes.length
+      ? [
+          `${species.label.plural} : ${[profileSummary, ...acceptedSizes].filter(Boolean).join(", ")}`,
+        ]
+      : [];
+  });
+  return items.join(" · ") || "Aucun profil renseigné";
+}
+
+function FamilyActivityPanel({
+  family,
+  snapshot,
+  run,
+}: PageProps & { family: AppSnapshot["families"][number] }) {
+  const [category, setCategory] = useState<"SUPPLY" | "BILL" | "OTHER">("SUPPLY");
+  const [document, setDocument] = useState<{
+    attachmentPath: string;
+    attachmentName: string;
+  } | null>(null);
+  const records = (snapshot.settings.activityRecords ?? [])
+    .filter((record) => record.familyId === family.id)
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const category = String(data.get("category")) as "SUPPLY" | "BILL" | "OTHER";
+    void run(
+      () =>
+        window.catApp.createActivityRecord({
+          familyId: family.id,
+          category,
+          date: String(data.get("date")),
+          title: String(data.get("title")),
+          amount: data.get("amount") ? Number(data.get("amount")) : null,
+          notes: String(data.get("notes")),
+          ...document,
+        }),
+      "Suivi de famille enregistré.",
+    ).then(() => {
+      form.reset();
+      setDocument(null);
+    });
+  };
+  return (
+    <section className="family-activity">
+      <h3>Consommations et factures</h3>
+      <form className="form-grid" onSubmit={submit}>
+        <Field label="Type">
+          <select
+            name="category"
+            value={category}
+            onChange={(event) => setCategory(event.target.value as typeof category)}
+          >
+            <option value="SUPPLY">Fourniture consommée</option>
+            <option value="BILL">Facture</option>
+            <option value="OTHER">Autre événement</option>
+          </select>
+        </Field>
+        <Field label="Date">
+          <DateInput name="date" defaultValue={localToday()} required />
+        </Field>
+        <Field label="Montant (€)">
+          <input name="amount" type="number" min="0" step="0.01" required={category === "BILL"} />
+        </Field>
+        <Field label="Intitulé">
+          <input name="title" placeholder="Litière, croquettes, facture vétérinaire…" required />
+        </Field>
+        <Field label="Notes" wide>
+          <textarea name="notes" rows={2} />
+        </Field>
+        <div className="activity-document wide">
+          <Button
+            type="button"
+            variant="secondary"
+            size="small"
+            onClick={async () => setDocument(await window.catApp.chooseActivityDocument())}
+          >
+            Joindre un document
+          </Button>
+          <span>{document?.attachmentName ?? "Aucun document joint"}</span>
+        </div>
+        <FormActions>
+          <Button variant="primary">Enregistrer</Button>
+        </FormActions>
+      </form>
+      <div className="family-activity-list">
+        {records.map((record) => (
+          <article key={record.id}>
+            <time>{formatDate(record.date)}</time>
+            <div>
+              <strong>{record.title}</strong>
+              <span>
+                {record.category === "SUPPLY"
+                  ? "Fourniture"
+                  : record.category === "BILL"
+                    ? "Facture"
+                    : "Autre"}
+                {record.amount !== null ? ` · ${record.amount.toFixed(2)} €` : ""}
+              </span>
+              {record.notes && <p>{record.notes}</p>}
+            </div>
+            {record.attachmentPath && (
+              <Button
+                size="small"
+                onClick={() => void window.catApp.openActivityDocument(record.attachmentPath)}
+              >
+                {record.attachmentName || "Ouvrir le document"}
+              </Button>
+            )}
+          </article>
+        ))}
+        {!records.length && <Empty text="Aucune consommation ni facture enregistrée." />}
+      </div>
+    </section>
   );
 }
 
@@ -3088,6 +3740,16 @@ function FamilyForm({
                     ?.profiles.some((item) => item.id === profile);
                   return species === speciesId && supported ? [profile as AnimalProfile] : [];
                 }),
+                ...(speciesId === "dog"
+                  ? {
+                      sizes: data
+                        .getAll("dogSizes")
+                        .filter(
+                          (size): size is "SMALL" | "MEDIUM" | "LARGE" =>
+                            typeof size === "string" && ["SMALL", "MEDIUM", "LARGE"].includes(size),
+                        ),
+                    }
+                  : {}),
               },
             ]),
           ),
@@ -3145,6 +3807,18 @@ function FamilyForm({
             })}
           </div>
         </FieldGroup>
+        {snapshot.settings.enabledSpecies.includes("dog") && (
+          <FieldGroup label="Tailles de chiens acceptées" wide>
+            <div className="checks profile-checks">
+              {(["SMALL", "MEDIUM", "LARGE"] as const).map((size) => (
+                <Checkbox key={size} name="dogSizes" value={size} defaultChecked>
+                  {size === "SMALL" ? "Petits" : size === "MEDIUM" ? "Moyens" : "Grands"} chiens
+                </Checkbox>
+              ))}
+            </div>
+            <small>Si aucune taille n’est cochée, la famille accepte toutes les tailles.</small>
+          </FieldGroup>
+        )}
         <Field label="Notes" wide>
           <textarea name="notes" rows={2} />
         </Field>
@@ -3754,98 +4428,174 @@ function AdoptionTable({
   snapshot: AppSnapshot;
   run: PageProps["run"];
 }) {
+  const [returningId, setReturningId] = useState("");
+  const returning = adoptions.find((adoption) => adoption.id === returningId);
   return (
-    <div className="table-wrap">
-      <table className="adoption-table">
-        <thead>
-          <tr>
-            <th>Animal</th>
-            <SpeciesTableHeader enabledSpecies={snapshot.settings.enabledSpecies} />
-            <th>État de l'animal</th>
-            <th>Adoptant définitif</th>
-            <th>Coordonnées</th>
-            <th>Adoption</th>
-            <th>Statut</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {adoptions.map((adoption) => {
-            const cat = snapshot.animals.find((item) => item.id === adoption.animalId)!;
-            const adopter = snapshot.adopters.find((item) => item.id === adoption.adopterId);
-            const warnings = animalWarnings(cat);
-            return (
-              <tr key={adoption.id}>
-                <td>
-                  <AnimalIdentity cat={cat} />
-                </td>
-                <SpeciesTableCell
-                  enabledSpecies={snapshot.settings.enabledSpecies}
-                  speciesId={cat.speciesId}
-                />
-                <td>
-                  {warnings.length ? (
-                    <Badge className="warning-badge" title={warnings.join(" · ")}>
-                      ⚠ {warnings.join(" · ")}
-                    </Badge>
-                  ) : (
-                    <Badge className="ok-badge">Dossier OK</Badge>
-                  )}
-                </td>
-                <td>
-                  <strong>{adopter?.label ?? "Adoptant inconnu"}</strong>
-                  <span>{adopter?.address}</span>
-                </td>
-                <td>
-                  {adopter?.email || "—"}
-                  <span>{adopter?.phone}</span>
-                </td>
-                <td>
-                  {formatDate(adoption.adoptionDate)}
-                  <span>{adoption.partner}</span>
-                </td>
-                <td>
-                  <Badge
-                    className={`status ${adoption.status === "ACTIVE" ? "adopted" : "returned"}`}
-                  >
-                    {adoption.status === "ACTIVE"
-                      ? "Active"
-                      : `Retour ${formatDate(adoption.endedAt)}`}
-                  </Badge>
-                </td>
-                <td>
-                  {adoption.status === "ACTIVE" && (
-                    <Button
-                      variant="danger"
-                      size="small"
-                      onClick={() => {
-                        const notes = window.prompt("Motif du retour") ?? "";
-                        const toRefuge = window.confirm(
-                          "Envoyer directement ce animal au refuge ?",
-                        );
-                        void run(
-                          () =>
-                            window.catApp.returnAdoption({
-                              adoptionId: adoption.id,
-                              date: localToday(),
-                              notes,
-                              refugeZoneId: toRefuge ? snapshot.refugeZones[0]?.id : undefined,
-                            }),
-                          toRefuge
-                            ? "Retour enregistré et animal envoyé au refuge."
-                            : "Retour enregistré.",
-                        );
-                      }}
+    <>
+      <div className="table-wrap">
+        <table className="adoption-table">
+          <thead>
+            <tr>
+              <th>Animal</th>
+              <SpeciesTableHeader enabledSpecies={snapshot.settings.enabledSpecies} />
+              <th>État de l'animal</th>
+              <th>Adoptant définitif</th>
+              <th>Coordonnées</th>
+              <th>Adoption</th>
+              <th>Statut</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {adoptions.map((adoption) => {
+              const cat = snapshot.animals.find((item) => item.id === adoption.animalId)!;
+              const adopter = snapshot.adopters.find((item) => item.id === adoption.adopterId);
+              const warnings = animalWarnings(cat);
+              return (
+                <tr key={adoption.id}>
+                  <td>
+                    <AnimalIdentity cat={cat} />
+                  </td>
+                  <SpeciesTableCell
+                    enabledSpecies={snapshot.settings.enabledSpecies}
+                    speciesId={cat.speciesId}
+                  />
+                  <td>
+                    {warnings.length ? (
+                      <Badge className="warning-badge" title={warnings.join(" · ")}>
+                        ⚠ {warnings.join(" · ")}
+                      </Badge>
+                    ) : (
+                      <Badge className="ok-badge">Dossier OK</Badge>
+                    )}
+                  </td>
+                  <td>
+                    <strong>{adopter?.label ?? "Adoptant inconnu"}</strong>
+                    <span>{adopter?.address}</span>
+                  </td>
+                  <td>
+                    {adopter?.email || "—"}
+                    <span>{adopter?.phone}</span>
+                  </td>
+                  <td>
+                    {formatDate(adoption.adoptionDate)}
+                    <span>{adoption.partner}</span>
+                  </td>
+                  <td>
+                    <Badge
+                      className={`status ${adoption.status === "ACTIVE" ? "adopted" : "returned"}`}
                     >
-                      Retour
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                      {adoption.status === "ACTIVE"
+                        ? "Active"
+                        : `Retour ${formatDate(adoption.endedAt)}`}
+                    </Badge>
+                  </td>
+                  <td>
+                    {adoption.status === "ACTIVE" && (
+                      <Button
+                        variant="danger"
+                        size="small"
+                        onClick={() => setReturningId(adoption.id)}
+                      >
+                        Retour
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {returning && (
+        <AdoptionReturnDialog
+          adoption={returning}
+          snapshot={snapshot}
+          run={run}
+          close={() => setReturningId("")}
+        />
+      )}
+    </>
+  );
+}
+
+function AdoptionReturnDialog({
+  adoption,
+  snapshot,
+  run,
+  close,
+}: {
+  adoption: Adoption;
+  snapshot: AppSnapshot;
+  run: PageProps["run"];
+  close: () => void;
+}) {
+  const animal = snapshot.animals.find((candidate) => candidate.id === adoption.animalId);
+  return (
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          close();
+        }
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="return-dialog-title"
+      >
+        <h2 id="return-dialog-title">Confirmer le retour{animal ? ` de ${animal.name}` : ""}</h2>
+        <p>Cette action clôt l’adoption et réintègre l’animal au suivi de l’association.</p>
+        <form
+          className="stack-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            const toRefuge = String(data.get("toRefuge")) === "on";
+            void run(
+              () =>
+                window.catApp.returnAdoption({
+                  adoptionId: adoption.id,
+                  date: String(data.get("date")),
+                  notes: String(data.get("reason")),
+                  refugeZoneId: toRefuge
+                    ? String(data.get("refugeZoneId")) || snapshot.refugeZones[0]?.id
+                    : undefined,
+                }),
+              toRefuge ? "Retour enregistré et animal envoyé au refuge." : "Retour enregistré.",
+            ).then(close);
+          }}
+        >
+          <Field label="Date du retour">
+            <DateInput name="date" defaultValue={localToday()} required />
+          </Field>
+          <Field label="Motif du retour">
+            <textarea name="reason" rows={3} required placeholder="Indiquez la raison du retour…" />
+          </Field>
+          <Checkbox name="toRefuge" layout="row">
+            Envoyer directement au refuge
+          </Checkbox>
+          <Field label="Zone du refuge">
+            <select name="refugeZoneId" defaultValue={snapshot.refugeZones[0]?.id ?? ""}>
+              <option value="">Choisir</option>
+              {snapshot.refugeZones.map((zone) => (
+                <option key={zone.id} value={zone.id}>
+                  {zone.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <FormActions>
+            <Button type="button" onClick={close}>
+              Annuler
+            </Button>
+            <Button variant="danger">Confirmer le retour</Button>
+          </FormActions>
+        </form>
+      </section>
     </div>
   );
 }
@@ -4216,7 +4966,11 @@ function PartnerPlaces({ snapshot, run }: PageProps) {
   );
 }
 
-function RefugePage({ snapshot, run }: PageProps) {
+function RefugePage({
+  snapshot,
+  run,
+  onOpenZone,
+}: PageProps & { onOpenZone: (zoneName: string) => void }) {
   const transferable = snapshot.animalViews.filter(
     (cat) => !["LOST", "DECEASED"].includes(cat.status),
   );
@@ -4334,13 +5088,18 @@ function RefugePage({ snapshot, run }: PageProps) {
           const stays = activeStays.filter((stay) => stay.zoneId === zone.id);
           return (
             <article className="zone-card" key={zone.id} id={`refuge-zone-${zone.id}`}>
-              <header>
+              <button
+                type="button"
+                className="zone-card-header"
+                aria-label={`Voir les animaux de ${zone.name} dans le registre`}
+                onClick={() => onOpenZone(zone.name)}
+              >
                 <div>
                   <strong>{zone.name}</strong>
                   <span>{zone.description}</span>
                 </div>
                 <b>{stays.length}</b>
-              </header>
+              </button>
               <div>
                 {stays.map((stay) => {
                   const cat = snapshot.animals.find((candidate) => candidate.id === stay.animalId)!;

@@ -77,7 +77,12 @@ export interface Family {
   phone: string;
   address: string;
   maxCapacity: number;
-  acceptanceRules?: Partial<Record<SpeciesId, { profiles: AnimalProfile[]; maxCapacity?: number }>>;
+  acceptanceRules?: Partial<
+    Record<
+      SpeciesId,
+      { profiles: AnimalProfile[]; maxCapacity?: number; sizes?: ("SMALL" | "MEDIUM" | "LARGE")[] }
+    >
+  >;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -277,6 +282,7 @@ export interface Dataset {
   settings: {
     enabledSpecies: SpeciesId[];
     appearanceCatalog?: Partial<Record<SpeciesId, AppearanceCatalog>>;
+    activityRecords?: ActivityRecord[];
   };
   animals: Animal[];
   families: Family[];
@@ -364,6 +370,33 @@ export interface AnimalHistoryInput {
   title: string;
   notes?: string;
   nextDate?: string;
+  replaceTaskId?: string;
+}
+
+export type ActivityCategory = "VETERINARY" | "FOSTER" | "BILL" | "SUPPLY" | "OTHER";
+export interface ActivityRecord {
+  id: string;
+  animalId: string;
+  familyId: string;
+  category: ActivityCategory;
+  date: string;
+  title: string;
+  amount: number | null;
+  notes: string;
+  attachmentPath: string;
+  attachmentName: string;
+  createdAt: string;
+}
+export interface ActivityRecordInput {
+  animalId?: string;
+  familyId?: string;
+  category: ActivityCategory;
+  date: string;
+  title: string;
+  amount?: number | null;
+  notes?: string;
+  attachmentPath?: string;
+  attachmentName?: string;
 }
 
 export interface FamilyInput {
@@ -375,7 +408,12 @@ export interface FamilyInput {
   phone?: string;
   address?: string;
   maxCapacity: number;
-  acceptanceRules?: Partial<Record<SpeciesId, { profiles: AnimalProfile[]; maxCapacity?: number }>>;
+  acceptanceRules?: Partial<
+    Record<
+      SpeciesId,
+      { profiles: AnimalProfile[]; maxCapacity?: number; sizes?: ("SMALL" | "MEDIUM" | "LARGE")[] }
+    >
+  >;
   notes?: string;
 }
 

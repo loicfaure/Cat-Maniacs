@@ -51,7 +51,11 @@ const api: AnimalAppApi = {
   acknowledgeEmail: (id) => ipcRenderer.invoke(IPC.acknowledgeEmail, id),
   chooseEmailOutputDirectory: () => ipcRenderer.invoke(IPC.chooseEmailOutputDirectory),
   setEmailOutputDirectory: (path) => ipcRenderer.invoke(IPC.setEmailOutputDirectory, path),
-  exportReadyEmails: () => ipcRenderer.invoke(IPC.exportReadyEmails),
+  exportReadyEmails: (directory) => ipcRenderer.invoke(IPC.exportReadyEmails, directory),
+  chooseActivityDocument: () => ipcRenderer.invoke(IPC.chooseActivityDocument),
+  createActivityRecord: (input) => ipcRenderer.invoke(IPC.createActivityRecord, input),
+  openActivityDocument: (relativePath) =>
+    ipcRenderer.invoke(IPC.openActivityDocument, relativePath),
 };
 
 contextBridge.exposeInMainWorld("catApp", api);

@@ -197,6 +197,14 @@ export function parseFamily(record: CsvTableRecord): Family {
       throw new Error(`Profil d'accueil invalide pour ${species}.`);
     }
     if (
+      rawRule.sizes !== undefined &&
+      (!Array.isArray(rawRule.sizes) ||
+        species !== "dog" ||
+        !rawRule.sizes.every((size) => ["SMALL", "MEDIUM", "LARGE"].includes(String(size))))
+    ) {
+      throw new Error(`Taille d'accueil invalide pour ${species}.`);
+    }
+    if (
       rawRule.maxCapacity !== undefined &&
       (!Number.isInteger(rawRule.maxCapacity) || (rawRule.maxCapacity as number) < 1)
     ) {

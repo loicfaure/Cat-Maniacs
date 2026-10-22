@@ -396,6 +396,19 @@ export class AnimalService {
       }
     }
     const timestamp = now();
+    if (input.replaceTaskId) {
+      const task = this.dataset.tasks.find(
+        (candidate) =>
+          candidate.id === input.replaceTaskId &&
+          candidate.animalId === input.animalId &&
+          candidate.status === "OPEN",
+      );
+      if (!task) {
+        throw new Error("Le rappel de santé à modifier est introuvable.");
+      }
+      task.status = "CANCELLED";
+      task.updatedAt = timestamp;
+    }
     this.dataset.animalEvents.push({
       id: id(),
       animalId: input.animalId,
@@ -478,6 +491,17 @@ export class AnimalService {
       throw new Error("La capacité doit être au moins de 1.");
     }
     const acceptanceRules = input.acceptanceRules ?? {};
+    for (const [species, rule] of Object.entries(acceptanceRules)) {
+      if (!this.dataset.settings.enabledSpecies.includes(species as SpeciesId)) {
+        continue;
+      }
+      if (rule?.sizes?.some((size) => !["SMALL", "MEDIUM", "LARGE"].includes(size))) {
+        throw new Error(`Taille d'accueil invalide pour ${species}.`);
+      }
+      if (rule?.sizes?.length && species !== "dog") {
+        throw new Error("Les préférences de taille ne sont disponibles que pour les chiens.");
+      }
+    }
     if (
       !Object.entries(acceptanceRules).some(
         ([species, rule]) =>
@@ -614,6 +638,16 @@ export class AnimalService {
     }
     if (hasSpecialNeeds && cat.profile !== "SPECIAL_NEEDS" && !acceptsSpecialNeeds) {
       warnings.push("La famille n'accepte pas les animaux ayant des besoins particuliers.");
+    }
+    if (cat.speciesId === "dog" && speciesRule.sizes?.length) {
+      const size = "size" in cat.speciesData ? cat.speciesData.size : undefined;
+      if (!size || !speciesRule.sizes.includes(size)) {
+        warnings.push(
+          size
+            ? `La famille n'accepte pas les chiens de taille ${size === "LARGE" ? "grande" : size === "SMALL" ? "petite" : "moyenne"}.`
+            : "La taille du chien est à préciser pour vérifier les critères de la famille.",
+        );
+      }
     }
     if (speciesRule.maxCapacity !== undefined) {
       const speciesOccupancy = this.dataset.fosterPlacements.filter((placement) => {

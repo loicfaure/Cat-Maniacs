@@ -256,5 +256,13 @@ export function validateDatasetReferences(dataset: Dataset): string[] {
       errors.push(`Relance ${followUp.id}: adoption absente.`);
     }
   }
+  for (const record of dataset.settings.activityRecords ?? []) {
+    if (record.animalId && !animalIds.has(record.animalId)) {
+      errors.push(`Événement ${record.id}: animal absent.`);
+    }
+    if (record.familyId && !familyIds.has(record.familyId)) {
+      errors.push(`Événement ${record.id}: famille absente.`);
+    }
+  }
   return errors;
 }
