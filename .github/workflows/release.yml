@@ -78,7 +78,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           VERSION_BUMP: ${{ inputs.version_bump }}
-        run: npm version "$VERSION_BUMP" --no-git-tag-version --ignore-scripts
+        run: npm version "$env:VERSION_BUMP" --no-git-tag-version --ignore-scripts
 
       - name: Set package homepage to this repository
         run: npm pkg set "homepage=${{ github.server_url }}/${{ github.repository }}"
