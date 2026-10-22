@@ -112,9 +112,9 @@ describe("integrated app species controls", () => {
   it("groups the labeled filters together and resets pagination when species changes", async () => {
     const document = await openAnimalForm(["cat", "dog"], { openForm: false, populate: true });
     const filters = document.querySelector('[role="group"][aria-label="Filtres du registre"]')!;
-    expect([...filters.querySelectorAll(".field-label")].map((label) => label.textContent)).toEqual(
-      ["Espèce", "Statut", "Stérilisation"],
-    );
+    expect(
+      [...filters.querySelectorAll(".registry-filter-trigger")].map((button) => button.textContent),
+    ).toEqual(expect.arrayContaining(["Espèce", "Statut", "Stérilisation"]));
     expect(document.querySelector(".registry-toolbar select")).toBeNull();
     const next = [...document.querySelectorAll<HTMLButtonElement>(".pagination button")].find(
       (button) => button.textContent?.includes("Suivant"),
@@ -122,10 +122,19 @@ describe("integrated app species controls", () => {
     await act(async () => next.click());
     expect(document.querySelector(".pagination > span")?.textContent).toContain("Page 2 sur 2");
 
-    const species = filters.querySelector<HTMLSelectElement>(".species-filter select")!;
     await act(async () => {
-      species.value = "dog";
-      species.dispatchEvent(new Event("change", { bubbles: true }));
+      [...filters.querySelectorAll<HTMLButtonElement>(".registry-filter-trigger")]
+        .find((button) => button.textContent === "Espèce")!
+        .click();
+    });
+    const species = [
+      ...document.querySelectorAll<HTMLLabelElement>(".registry-facet-options label"),
+    ].find((label) => label.textContent?.includes("Chiens"))!;
+    await act(async () => {
+      species.querySelector<HTMLInputElement>("input")!.click();
+      [...document.querySelectorAll<HTMLButtonElement>(".registry-filter-drawer footer button")]
+        .find((button) => button.textContent?.startsWith("Afficher"))!
+        .click();
     });
     expect(document.querySelector(".pagination > span")?.textContent).toContain("Page 1 sur 1");
     expect(document.querySelectorAll(".registry-table tbody tr")).toHaveLength(1);

@@ -30,6 +30,16 @@ async function openApp(species: SpeciesId[] = ["cat"], seed = false) {
     datasetPath: "/tmp/animal-fields-test",
     demoMode: false,
     showDemoWelcome: false,
+    emailTemplates: {
+      leadDays: 14,
+      sterilisation: { subject: "", body: "" },
+      vaccination: { subject: "", body: "" },
+      antiFlea: { subject: "", body: "" },
+      deworming: { subject: "", body: "" },
+      icad: { subject: "", body: "" },
+    },
+    generatedEmails: [],
+    emailOutputDirectory: "",
   });
   const createAnimal = vi.fn(async (input: AnimalInput) => {
     service.createAnimal(input);
@@ -107,10 +117,10 @@ describe("animal forms and table presentation", () => {
     expect(document.querySelector('select option[value="SPECIAL_NEEDS"]')).toBeNull();
     expect(document.querySelector('textarea[name="adoptionBlockedReason"]')).toBeNull();
     const adoption = document.querySelector<HTMLSelectElement>('select[aria-label="Adoptable"]')!;
-    expect([...adoption.options].map((option) => option.textContent)).toEqual([
-      "Inconnu",
-      "Oui",
-      "Non",
+    expect([...adoption.options].map((option) => option.value)).toEqual([
+      "UNKNOWN",
+      "ELIGIBLE",
+      "INELIGIBLE",
     ]);
     await act(async () => {
       adoption.value = "INELIGIBLE";
