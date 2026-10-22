@@ -124,7 +124,7 @@ Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet p
 Le workflow de publication appelle le workflow CI réutilisable une seule fois avant de lancer les paquets Windows et Linux. La CI et les builds de démonstration contrôlent les fichiers publiables sans imposer d'identité aux contributeurs. Avant une publication (y compris un brouillon), l'appel CI exécute aussi `npm run privacy:history` sur l'historique complet ; cet audit conserve les restrictions d'identité des commits.
 
 - **Dry run** (activé par défaut) : un lancement manuel produit les paquets et les conserve comme artefacts pendant 14 jours, sans créer de tag ni de release.
-- **Publication** : mettre à jour la version de `package.json`, lancer manuellement le workflow, désactiver `dry_run`, puis choisir `stable`, `prerelease` ou `draft`. Après la réussite des builds Windows et Linux, le job de publication crée lui-même le tag `v<version>` puis la GitHub Release du type demandé.
+- **Publication** : lancer manuellement le workflow, choisir l’incrément `patch`, `minor` ou `major`, désactiver `dry_run`, puis choisir `stable`, `prerelease` ou `draft`. Après la réussite des builds Windows et Linux, le job incrémente `package.json` et `package-lock.json`, pousse ce commit sur la branche choisie, crée le tag `v<version>`, puis publie la GitHub Release du type demandé. Un dry run construit les paquets avec la version incrémentée sans modifier la branche.
 
 Un tag `v*` poussé manuellement reste également pris en charge. Le workflow vérifie alors qu'il correspond exactement à la version de `package.json`.
 
