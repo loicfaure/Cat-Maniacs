@@ -76,9 +76,7 @@ jobs:
 
       - name: Bump package version for this build
         if: github.event_name == 'workflow_dispatch'
-        env:
-          VERSION_BUMP: ${{ inputs.version_bump }}
-        run: npm version "$env:VERSION_BUMP" --no-git-tag-version --ignore-scripts
+        run: npm version "${{ inputs.version_bump || 'patch' }}" --no-git-tag-version --ignore-scripts
 
       - name: Set package homepage to this repository
         run: npm pkg set "homepage=${{ github.server_url }}/${{ github.repository }}"
@@ -121,15 +119,13 @@ jobs:
 
       - name: Resolve and create release tag
         id: release_tag
-        env:
-          VERSION_BUMP: ${{ inputs.version_bump }}
         shell: bash
         run: |
           set -euo pipefail
 
           release_commit="${GITHUB_SHA}"
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            npm version "${VERSION_BUMP}" --no-git-tag-version --ignore-scripts
+            npm version "${{ inputs.version_bump || 'patch' }}" --no-git-tag-version --ignore-scripts
             package_version="$(node -p "require('./package.json').version")"
             release_tag="v${package_version}"
             if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
