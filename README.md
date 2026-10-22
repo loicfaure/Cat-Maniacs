@@ -25,6 +25,8 @@ Application Electron/TypeScript locale pour gérer le parcours des chats de Cha'
 
 Le fichier `.npmrc` contient `ignore-scripts=true`. Les scripts de cycle de vie des dépendances, dont les `postinstall`, ne sont donc jamais exécutés par `npm install`.
 
+Utiliser Node.js `^22.22.2`, `^24.15.0` ou `>=26.0.0` et npm `12.2.0` (version utilisée en CI). Les dépendances directes sont épinglées à une version exacte ; `min-release-age=7` limite les nouvelles résolutions aux versions publiées depuis plus de sept jours, y compris pour les dépendances transitives. `strict-peer-deps=true` fait échouer l'installation en cas de conflit de dépendances homologues (`peerDependencies`).
+
 ```bash
 npm install --ignore-scripts
 npm run check
@@ -76,11 +78,12 @@ Les fichiers de données et exports (`CSV`, tableurs et dossier `dataset`) sont 
 npm run dev        # build puis lancement Electron
 npm run demo       # jeu isolé réinitialisé avec 64 chats de démonstration
 npm run demo:workflow # rejoue un parcours UI automatisé dans un jeu démo réinitialisé
-npm run privacy    # contrôle les fichiers publiables et l'identité des commits
+npm run privacy    # contrôle les fichiers publiables
+npm run privacy:history # contrôle aussi l'identité des commits avant publication
 npm run typecheck
 npm test
 npm run build
-npm run check      # confidentialité + typecheck + tests + build
+npm run check      # confidentialité des fichiers + lint + typecheck + tests + build
 npm run dist:linux # AppImage Linux x64
 npm run dist:win   # installateur Windows x64 (à lancer sous Windows)
 ```
@@ -88,6 +91,8 @@ npm run dist:win   # installateur Windows x64 (à lancer sous Windows)
 ## Publier une version
 
 Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`) et une application Linux (`.AppImage`). Ce sont les deux seuls fichiers applicatifs ajoutés à la release ; GitHub affiche également ses archives automatiques du code source.
+
+Le workflow de publication appelle le workflow CI réutilisable une seule fois avant de lancer les paquets Windows et Linux. La CI et les builds de démonstration contrôlent les fichiers publiables sans imposer d'identité aux contributeurs. Avant une publication (y compris un brouillon), l'appel CI exécute aussi `npm run privacy:history` sur l'historique complet ; cet audit conserve les restrictions d'identité des commits.
 
 - **Dry run** (activé par défaut) : un lancement manuel produit les paquets et les conserve comme artefacts pendant 14 jours, sans créer de tag ni de release.
 - **Publication** : mettre à jour la version de `package.json`, lancer manuellement le workflow, désactiver `dry_run`, puis choisir `stable`, `prerelease` ou `draft`. Après la réussite des builds Windows et Linux, le job de publication crée lui-même le tag `v<version>` puis la GitHub Release du type demandé.

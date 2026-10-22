@@ -58,11 +58,15 @@ for (const path of listed) {
   }
 }
 
-const commitRows = execFileSync("git", ["log", "HEAD", "--format=%an%x09%ae%x09%cn%x09%ce"], {
-  encoding: "utf8",
-})
-  .split(/\r?\n/)
-  .filter(Boolean);
+// Commit identities belong to the publication audit, rather than the source build.
+const includeHistory = process.argv.includes("--include-history");
+const commitRows = includeHistory
+  ? execFileSync("git", ["log", "HEAD", "--format=%an%x09%ae%x09%cn%x09%ce"], {
+      encoding: "utf8",
+    })
+      .split(/\r?\n/)
+      .filter(Boolean)
+  : [];
 for (const row of commitRows) {
   const [authorName, authorEmail, committerName, committerEmail] = row.split("\t");
   for (const name of [authorName, committerName]) {
@@ -87,5 +91,5 @@ if (findings.size > 0) {
 }
 
 console.log(
-  `Publication privacy check passed (${listed.length} candidate files, ${commitRows.length} commits).`,
+  `Publication privacy check passed (${listed.length} candidate files${includeHistory ? `, ${commitRows.length} commits` : ""}).`,
 );
