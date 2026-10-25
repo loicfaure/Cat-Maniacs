@@ -39,6 +39,7 @@ import type {
   PlacementInput,
   ReminderTemplateKey,
 } from "../shared/types";
+import { configureAutoUpdates } from "./autoUpdate";
 import { openModeDataset } from "./datasetMode";
 import { type AppPreferences, loadAppPreferences, saveAppPreferences } from "./preferences";
 
@@ -885,7 +886,8 @@ app.whenReady().then(async () => {
   }
   await saveAppPreferences(preferencesPath, preferences);
   registerHandlers();
-  createWindow();
+  const window = createWindow();
+  configureAutoUpdates(window);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

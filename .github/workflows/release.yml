@@ -102,6 +102,8 @@ jobs:
             release/*.exe
             release/*.AppImage
             release/*.dmg
+            release/*.zip
+            release/*.yml
 
   release:
     name: Publish GitHub Release
@@ -215,7 +217,7 @@ jobs:
           for asset in "${existing_assets[@]}"; do
             gh release delete-asset "${RELEASE_TAG}" "${asset}" --yes
           done
-          gh release upload "${RELEASE_TAG}" release/*.exe release/*.AppImage release/*.dmg
+          gh release upload "${RELEASE_TAG}" release/*.exe release/*.AppImage release/*.dmg release/*.zip release/*.yml
 
   dry-run-summary:
     name: Dry run complete
