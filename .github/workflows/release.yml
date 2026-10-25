@@ -89,8 +89,51 @@ jobs:
       - name: Download Electron runtime
         run: npm run electron:install
 
+      - name: Require macOS signing for published releases
+        if: matrix.platform == 'macOS' && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false))
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${MAC_CSC_LINK}" || -z "${MAC_CSC_KEY_PASSWORD}" ]]; then
+            echo "MAC_CSC_LINK and MAC_CSC_KEY_PASSWORD GitHub secrets are required for signed macOS releases." >&2
+            exit 1
+          fi
+
       - name: Build ${{ matrix.platform }} packages
         run: ${{ matrix.command }}
+        env:
+          CSC_LINK: ${{ matrix.platform == 'macOS' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+
+      - name: Verify ${{ matrix.platform }} update artifacts
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+
+          case "${PLATFORM}" in
+            Windows)
+              test -n "$(find release -maxdepth 1 -name '*.exe' -print -quit)"
+              test -f release/latest.yml
+              ;;
+            Linux)
+              test -n "$(find release -maxdepth 1 -name '*.AppImage' -print -quit)"
+              test -f release/latest-linux.yml
+              ;;
+            macOS)
+              test -n "$(find release -maxdepth 1 -name '*.dmg' -print -quit)"
+              test -n "$(find release -maxdepth 1 -name '*.zip' -print -quit)"
+              test -f release/latest-mac.yml
+              ;;
+            *)
+              echo "Unsupported release platform: ${PLATFORM}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Upload ${{ matrix.platform }} artifacts
         uses: actions/upload-artifact@v4
