@@ -1,6 +1,11 @@
 appId: fr.chamania.catdispenser
 productName: "Cha Mania"
 
+publish:
+  provider: github
+  owner: loicfaure
+  repo: Cat-Maniacs
+
 directories:
   output: release
 
@@ -43,6 +48,9 @@ mac:
   icon: build/icon.png
   target:
     - target: dmg
+      arch:
+        - universal
+    - target: zip
       arch:
         - universal
   artifactName: "Cat-Dispenser-${version}-macOS-${arch}.${ext}"
