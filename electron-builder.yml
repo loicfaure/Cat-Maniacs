@@ -44,5 +44,5 @@ mac:
   target:
     - target: dmg
       arch:
-        - x64
+        - universal
   artifactName: "Cat-Dispenser-${version}-macOS-${arch}.${ext}"
