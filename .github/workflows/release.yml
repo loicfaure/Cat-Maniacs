@@ -57,6 +57,9 @@ jobs:
           - platform: Linux
             runner: ubuntu-latest
             command: npm run dist:linux
+          - platform: macOS
+            runner: macos-latest
+            command: npm run dist:mac
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
@@ -98,6 +101,7 @@ jobs:
           path: |
             release/*.exe
             release/*.AppImage
+            release/*.dmg
 
   release:
     name: Publish GitHub Release
@@ -211,7 +215,7 @@ jobs:
           for asset in "${existing_assets[@]}"; do
             gh release delete-asset "${RELEASE_TAG}" "${asset}" --yes
           done
-          gh release upload "${RELEASE_TAG}" release/*.exe release/*.AppImage
+          gh release upload "${RELEASE_TAG}" release/*.exe release/*.AppImage release/*.dmg
 
   dry-run-summary:
     name: Dry run complete
@@ -222,4 +226,4 @@ jobs:
       - name: Summarize dry run
         run: |
           echo "## Dry run complete" >> "${GITHUB_STEP_SUMMARY}"
-          echo "The Windows .exe and Linux .AppImage are available in this workflow run's artifacts. No tag or GitHub Release was created." >> "${GITHUB_STEP_SUMMARY}"
+          echo "The Windows .exe, Linux .AppImage, and macOS .dmg are available in this workflow run's artifacts. No tag or GitHub Release was created." >> "${GITHUB_STEP_SUMMARY}"

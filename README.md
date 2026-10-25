@@ -115,16 +115,17 @@ npm run build
 npm run check      # confidentialité des fichiers + lint + typecheck + tests + build
 npm run dist:linux # AppImage Linux x64
 npm run dist:win   # installateur Windows x64 (à lancer sous Windows)
+npm run dist:mac   # image disque macOS x64 (à lancer sous macOS)
 ```
 
 ## Publier une version
 
-Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`) et une application Linux (`.AppImage`). Ce sont les deux seuls fichiers applicatifs ajoutés à la release ; GitHub affiche également ses archives automatiques du code source.
+Le workflow GitHub Actions `Build and release desktop apps` vérifie le projet puis construit un installateur Windows (`.exe`), une application Linux (`.AppImage`) et une image disque macOS (`.dmg`). Ce sont les trois seuls fichiers applicatifs ajoutés à la release ; GitHub affiche également ses archives automatiques du code source.
 
-Le workflow de publication appelle le workflow CI réutilisable une seule fois avant de lancer les paquets Windows et Linux. La CI et les builds de démonstration contrôlent les fichiers publiables sans imposer d'identité aux contributeurs. Avant une publication (y compris un brouillon), l'appel CI exécute aussi `npm run privacy:history` sur l'historique complet ; cet audit conserve les restrictions d'identité des commits.
+Le workflow de publication appelle le workflow CI réutilisable une seule fois avant de lancer les paquets Windows, Linux et macOS. La CI et les builds de démonstration contrôlent les fichiers publiables sans imposer d'identité aux contributeurs. Avant une publication (y compris un brouillon), l'appel CI exécute aussi `npm run privacy:history` sur l'historique complet ; cet audit conserve les restrictions d'identité des commits.
 
 - **Dry run** (activé par défaut) : un lancement manuel produit les paquets et les conserve comme artefacts pendant 14 jours, sans créer de tag ni de release.
-- **Publication** : lancer manuellement le workflow, choisir l’incrément `patch`, `minor` ou `major`, désactiver `dry_run`, puis choisir `stable`, `prerelease` ou `draft`. Après la réussite des builds Windows et Linux, le job incrémente `package.json` et `package-lock.json`, pousse ce commit sur la branche choisie, crée le tag `v<version>`, puis publie la GitHub Release du type demandé. Un dry run construit les paquets avec la version incrémentée sans modifier la branche.
+- **Publication** : lancer manuellement le workflow, choisir l’incrément `patch`, `minor` ou `major`, désactiver `dry_run`, puis choisir `stable`, `prerelease` ou `draft`. Après la réussite des builds Windows, Linux et macOS, le job incrémente `package.json` et `package-lock.json`, pousse ce commit sur la branche choisie, crée le tag `v<version>`, puis publie la GitHub Release du type demandé. Un dry run construit les paquets avec la version incrémentée sans modifier la branche.
 
 Un tag `v*` poussé manuellement reste également pris en charge. Le workflow vérifie alors qu'il correspond exactement à la version de `package.json`.
 

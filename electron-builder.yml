@@ -38,3 +38,11 @@ linux:
       arch:
         - x64
   artifactName: "Cat-Dispenser-${version}-Linux-${arch}.${ext}"
+
+mac:
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch:
+        - x64
+  artifactName: "Cat-Dispenser-${version}-macOS-${arch}.${ext}"
