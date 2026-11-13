@@ -75,7 +75,7 @@ export class AnimalService {
     return this.dataset;
   }
 
-  createAnimal(input: AnimalInput): Dataset {
+  createAnimal(input: AnimalInput, fromCS: boolean = false): Dataset {
     const name = input.name.trim();
     if (!name) {
       throw new Error("Le nom de l'animal est obligatoire.");
@@ -111,7 +111,8 @@ export class AnimalService {
       input.profile ??
       definition.deriveProfile?.(input.birthDate ?? "", new Date()) ??
       definition.defaultProfile;
-    if (!definition.profiles.some((candidate) => candidate.id === profile)) {
+      // CS doesn't keep 'profile' data so it'll always be 'UNKNOW' so we pass this check
+    if (!fromCS && !definition.profiles.some((candidate) => candidate.id === profile)) {
       throw new Error(
         `Le profil ${profile} n'est pas disponible pour les ${definition.label.plural.toLocaleLowerCase("fr-FR")}.`,
       );
@@ -131,6 +132,8 @@ export class AnimalService {
     const animalId = id();
     this.dataset.animals.push({
       id: animalId,
+      idCS: input.idCS,
+      isAddedToCS: input.isAddedToCS,
       speciesId,
       speciesData,
       identificationScheme,
@@ -161,6 +164,7 @@ export class AnimalService {
     addEvent(this.dataset, animalId, "REGISTERED", intakeDate);
     rememberAppearance(this.dataset, speciesId, speciesData);
     touch(this.dataset);
+
     return this.dataset;
   }
 

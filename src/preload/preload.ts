@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "../shared/ipc";
-import type { AnimalAppApi } from "../shared/types";
+import type { AnimalAppApi, MajResult } from "../shared/types";
 
 const api: AnimalAppApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.bootstrap),
@@ -54,8 +54,17 @@ const api: AnimalAppApi = {
   exportReadyEmails: (directory) => ipcRenderer.invoke(IPC.exportReadyEmails, directory),
   chooseActivityDocument: () => ipcRenderer.invoke(IPC.chooseActivityDocument),
   createActivityRecord: (input) => ipcRenderer.invoke(IPC.createActivityRecord, input),
+  MAJ: (): Promise<MajResult> => ipcRenderer.invoke(IPC.MAJ),
+  onMajProgress: (cb: (p: { current: number; total: number }) => void) => {
+    const listener = (_e: unknown, p: { current: number; total: number }) => cb(p);
+    ipcRenderer.on("maj:progress", listener);
+    return () => ipcRenderer.removeListener("maj:progress", listener);
+  },
   openActivityDocument: (relativePath) =>
     ipcRenderer.invoke(IPC.openActivityDocument, relativePath),
 };
 
 contextBridge.exposeInMainWorld("catApp", api);
+contextBridge.exposeInMainWorld('electronAPI', {
+  googleSignIn: () => ipcRenderer.invoke('auth:google'),
+});

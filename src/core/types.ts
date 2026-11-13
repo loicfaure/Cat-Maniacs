@@ -37,7 +37,7 @@ export type AdoptionEligibility = "ELIGIBLE" | "ON_HOLD" | "INELIGIBLE" | "UNKNO
 export type HealthStatus = "HEALTHY" | "SICK" | "RECOVERED";
 export type AnimalStatus = "FOSTERED" | "AT_REFUGE" | "ADOPTED" | "LOST" | "DECEASED";
 
-export interface Animal {
+export interface Animal extends CS {
   id: string;
   speciesId: SpeciesId;
   speciesData: SpeciesData;
@@ -309,7 +309,13 @@ export interface AnimalView extends Animal {
   currentLocationLabel: string;
 }
 
-export interface AnimalInput {
+interface CS {
+    // is or should be updated for CS website
+  isAddedToCS?: boolean;
+  idCS? : string;
+}
+
+export interface AnimalInput extends CS {
   name: string;
   speciesId?: SpeciesId;
   speciesData?: SpeciesData;
@@ -502,3 +508,116 @@ export interface ImportCommitResult {
   importedAdoptions: number;
   skippedRows: number;
 }
+
+
+// start CS firebase 
+
+export type CompatibilityFB = Record<CompatibilityTargetCS, boolean | null>
+
+
+export interface IncludedFraisCS {
+  isSterilized: boolean | null
+  isIdentified: boolean | null
+  isVaccinated: boolean | null
+  isDeparasitage: boolean | null
+  hasBilanDeSante: boolean | null
+  shouldBeFeeded: boolean | null
+}
+
+export interface FraisAdoptionsCS {
+  frais: number
+  included?: IncludedFraisCS
+}
+
+
+export enum LookingForEnum {
+  PARRAIN = 'Parrainer',
+  ADOPTION = 'Adopter',
+  RESERVE = 'Reserve',
+  FACC = 'FACC',
+  ALREADY_ADOPTED = 'Adopte',
+}
+
+export type PublishedAnimal = Pick<
+  Animal,
+  | 'speciesId' | 'name' | 'sex' | 'birthDate' | 'intakeDate'
+  | 'description' | 'photo' | 'speciesData'
+  | 'compatibilityBySpecies' | 'okWithChildren'
+  | 'adoptionEligibility'
+> & { idCS?: string }
+
+export type sexCS = 'male' | 'female'
+
+export enum speciesCSEnum {
+  Chien = 'chien',
+  Lapin = 'lapin',
+  Serpent = 'serpent',
+  Chat = 'chat',
+  autre = 'autre',
+}
+
+export const CS_COLLECTIONS = ["dogs", "cats", "lapins", "snakes"] as const;
+
+
+
+export type SpeciesCS = (typeof CS_COLLECTIONS)[number];
+
+
+export const ANIMAL_SPECIES_FB = [speciesCSEnum.Chien, speciesCSEnum.Lapin, speciesCSEnum.Serpent, speciesCSEnum.Chat] as const
+export type animalSpeciesCS = (typeof ANIMAL_SPECIES_FB)[number]
+
+// looking for
+export enum lookingForEnumCS {
+  Parrainer = 'Parrainer',
+  Adopter = 'Adopter',
+  Reserve = 'Reserve',
+  FACC = 'FACC',
+  Adopte = 'Adopte',
+}
+
+export interface IncludedFraisCS {
+  isSterilized: boolean | null
+  isIdentified: boolean | null
+  isVaccinated: boolean | null
+  isDeparasitage: boolean | null
+  hasBilanDeSante: boolean | null
+  shouldBeFeeded: boolean | null
+}
+
+export interface FraisAdoptionsCS {
+  frais: number
+  included?: IncludedFraisCS
+}
+
+export type CompatibilityTargetCS = 'chien' | 'lapin' | 'chat' | 'enfant' | 'serpent'
+
+export interface LegacyAnimalCS  {
+  _id: string
+  name: string
+  //lookingFor
+  type: lookingForEnumCS[]
+  //birthdate
+  age: string
+  //intakeDate
+  inShelter: string
+  //breed
+  race: string
+  gender: sexCS
+  animal: animalSpeciesCS
+  specificite: string
+  compatibility: CompatibilityFB
+  images: string[]
+  description: string
+  fraisAdoptions?: FraisAdoptionsCS
+}
+
+
+export type LegacyDocExtrasCS = {
+  id: string;
+  birthdate: string;
+  tookIn: string;
+};
+
+export type LegacyDocWriteCS = Omit<LegacyAnimalCS, "type"> & LegacyDocExtrasCS;
+
+// end CS firebase
