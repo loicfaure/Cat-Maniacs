@@ -11,6 +11,7 @@ import type {
   AnimalView,
   CareRecordInput,
   Dataset,
+  Failure,
   FamilyInput,
   HealthExposure,
   ImportCommitResult,
@@ -63,6 +64,8 @@ export interface AnimalAppApi {
   setDemoMode(enabled: boolean): Promise<AppSnapshot>;
   dismissDemoWelcome(): Promise<AppSnapshot>;
   createAnimal(input: AnimalInput): Promise<AppSnapshot>;
+  MAJ(): Promise<MajResult>;
+  onMajProgress(cb: (p: { current: number; total: number }) => void): () => void;
   updateAnimal(input: AnimalUpdateInput): Promise<AppSnapshot>;
   createFamily(input: FamilyInput): Promise<AppSnapshot>;
   addFamilyHoliday(input: {
@@ -177,3 +180,11 @@ export interface AnimalAppApi {
   createActivityRecord(input: ActivityRecordInput): Promise<AppSnapshot>;
   openActivityDocument(relativePath: string): Promise<void>;
 }
+
+export type Failure = { name: string; reason: string }
+export type MajResult = {
+  snapshot: AppSnapshot;
+  added: number;
+  updated: number;
+  failures: Failure[];
+};

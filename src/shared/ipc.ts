@@ -6,6 +6,7 @@ export const IPC = {
   chooseDataset: "dataset:choose",
   createAnimal: "animals:create",
   updateAnimal: "animals:update",
+  MAJ: "animals:maj",
   createFamily: "families:create",
   addFamilyHoliday: "families:add-holiday",
   createAdopter: "adopters:create",

@@ -21,27 +21,35 @@ import { runLegacyMigration } from "../infrastructure/migrations/engine";
 import { inspectLegacyDataset } from "../infrastructure/migrations/inspectLegacy";
 import { recoverStaleMigrationBeforeInspection } from "../infrastructure/migrations/transaction";
 import { commitLegacyPreview, previewLegacyCsv } from "../legacy/legacyImport";
+import { fetchAnimalsFromCS, findFBCollectionName, SPECIES_TO_LEGACY } from '../renderer/utilsCS'
 import { IPC } from "../shared/ipc";
-import type {
-  ActivityRecordInput,
-  AdopterInput,
-  AdoptionDayInput,
-  AdoptionInput,
-  AdoptionWithNewFamilyInput,
-  AnimalInput,
-  AnimalUpdateInput,
-  AppSnapshot,
-  Dataset,
-  EmailTemplates,
-  FamilyInput,
-  GeneratedEmail,
-  LegacyImportPreview,
-  PlacementInput,
-  ReminderTemplateKey,
+import {
+  type ActivityRecordInput,
+  type AdopterInput,
+  type AdoptionDayInput,
+  type AdoptionInput,
+  type AdoptionWithNewFamilyInput,
+  type AnimalInput,
+  type AnimalUpdateInput,
+  type AppSnapshot,
+  type Dataset,
+  type EmailTemplates,
+  type FamilyInput,
+  type GeneratedEmail,
+  type LegacyImportPreview,
+  type PlacementInput,
+  type ReminderTemplateKey,
+  type SpeciesCS,
 } from "../shared/types";
 import { configureAutoUpdates } from "./autoUpdate";
 import { openModeDataset } from "./datasetMode";
 import { type AppPreferences, loadAppPreferences, saveAppPreferences } from "./preferences";
+
+import http from 'http';
+import crypto from 'crypto';
+import { AddressInfo } from 'net';
+
+
 
 const forcedDemoMode = process.env.CAT_DISPENSER_DEMO === "1";
 let demoMode = false;
@@ -349,9 +357,11 @@ function registerHandlers(): void {
     await saveAppPreferences(preferencesPath, preferences);
     return snapshot();
   });
-  handle(IPC.createAnimal, async (_event, input: AnimalInput) =>
-    mutate((service) => void service.createAnimal(input)),
-  );
+handle(IPC.createAnimal, async (_event, input: AnimalInput) => {
+  await mutate((service) => void service.createAnimal(input));
+  const snap = snapshot();
+  return snap;
+});
   handle(IPC.setEnabledSpecies, async (_event, species: import("../core/types").SpeciesId[]) => {
     if (!Array.isArray(species) || !species.length || !species.every(isSpeciesId)) {
       throw new Error("Choisissez au moins une espèce prise en charge.");
@@ -796,6 +806,78 @@ function registerHandlers(): void {
       throw new Error(error);
     }
   });
+
+
+const b64url = (b: Buffer) => b.toString('base64url');
+
+ipcMain.handle('auth:google', async () => {
+  const verifier = b64url(crypto.randomBytes(32));
+  const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+  const state = b64url(crypto.randomBytes(16));
+  const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const { code, redirectUri } = await new Promise<{ code: string; redirectUri: string }>(
+    (resolve, reject) => {
+      let redirectUri = '';
+      const timeout = setTimeout(() => {
+        server.close();
+        reject(new Error('Login timed out'));
+      }, 5 * 60 * 1000);
+
+      const server = http.createServer((req, res) => {
+        const url = new URL(req.url!, 'http://127.0.0.1');
+        const code = url.searchParams.get('code');
+        const error = url.searchParams.get('error');
+
+        if (url.searchParams.get('state') !== state || (!code && !error)) {
+          res.writeHead(400).end('Invalid request');
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<h3>Signed in. You can close this tab and return to the app.</h3>');
+        clearTimeout(timeout);
+        server.close();
+
+        error ? reject(new Error(error)) : resolve({ code: code!, redirectUri });
+      });
+
+      server.listen(0, '127.0.0.1', () => {
+        const port = (server.address() as AddressInfo).port;
+        redirectUri = `http://127.0.0.1:${port}`;
+
+        const params = new URLSearchParams({
+          client_id:  GOOGLE_CLIENT_ID,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          scope: 'openid email profile',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          state,
+        });
+        shell.openExternal(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+      });
+    }
+  );
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: import.meta.env.VITE_GOOGLE_CLIENT_SECRET,
+      code,
+      code_verifier: verifier,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!tokenRes.ok) throw new Error(await tokenRes.text());
+  const tokens = await tokenRes.json();
+  return { idToken: tokens.id_token, accessToken: tokens.access_token };
+});
+
   handle(IPC.chooseLegacyCsv, async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
@@ -814,6 +896,53 @@ function registerHandlers(): void {
     dataset = draft;
     return { snapshot: snapshot(), result };
   });
+
+
+handle(IPC.MAJ, async (event) => {
+  const send = (current: number, total: number) =>
+    event.sender.send("maj:progress", { current, total });
+
+  try {
+    send(0, 0); // total 0 = "fetching from CS" phase (indeterminate)
+
+    const animalsCS = await fetchAnimalsFromCS(
+      dataset.settings.enabledSpecies.map((id) => findFBCollectionName(id) as SpeciesCS),
+    );
+    const service = new AnimalService(dataset);
+    const total = animalsCS.length;
+    let added = 0;
+let updated = 0;
+    const failures: { name: string; reason: string }[] = [];
+
+    for (const [i, animal] of animalsCS.entries()) {
+      const index = dataset.animals.findIndex((a) => a.idCS && a.idCS === animal.idCS);
+
+      if (index === -1) {
+        try {
+          service.createAnimal({ ...animal, isAddedToCS: true }, true);
+          added++;
+        } catch (error) {
+          failures.push({
+            name: animal.name,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else {
+        dataset.animals[index] = { ...dataset.animals[index], ...animal, isAddedToCS: true };
+        updated++;
+      }
+
+      send(i + 1, total);
+      // the loop is synchronous: give the event loop a chance to flush messages
+      if (i % 5 === 0) await new Promise((r) => setImmediate(r));
+    }
+
+    return { snapshot: snapshot(), added, updated, failures };
+  } catch (error) {
+    throw error;
+  }
+});
+
 }
 
 function createWindow(): BrowserWindow {
@@ -836,6 +965,7 @@ function createWindow(): BrowserWindow {
   window.loadFile(join(__dirname, "../dist/index.html"));
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  //window.webContents.openDevTools({ mode: "detach" });
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   return window;
 }

@@ -14,8 +14,10 @@ import type {
   AdoptionDaySuggestionGroup,
   AdoptionEligibility,
   AnimalEventType,
+  AnimalInput,
   AnimalProfile,
   AnimalStatus,
+  AnimalUpdateInput,
   AppSnapshot,
   EmailTemplates,
   HealthExposure,
@@ -24,6 +26,8 @@ import type {
   SpeciesData,
   SpeciesId,
   SterilizationStatus,
+  Failure,
+  MajResult,
 } from "../shared/types";
 import { searchAdoptionAnimals } from "./animalSearch";
 import { type AnimalSortField, buildAnimalTable, type SortDirection } from "./animalTable";
@@ -54,6 +58,8 @@ import {
   RecordLink,
   SearchField,
 } from "./ui";
+import { upsertAnimalToCS } from "./utilsCS";
+import { ensureSignedIn } from "../application/auth";
 
 type Page =
   | "dashboard"
@@ -438,6 +444,7 @@ export function App() {
               {page === "animals" && (
                 <AnimalsPage
                   snapshot={snapshot}
+                  setSnapshot={setSnapshot}
                   run={run}
                   selectedLocations={animalLocationFilters}
                   setSelectedLocations={setAnimalLocationFilters}
@@ -1285,9 +1292,11 @@ function AnimalsPage({
   run,
   selectedLocations,
   setSelectedLocations,
+  setSnapshot,
 }: PageProps & {
   selectedLocations: string[];
   setSelectedLocations: (locations: string[]) => void;
+  setSnapshot: (snapshot: AppSnapshot) => void;
 }) {
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState<AnimalSortField>("intakeDate");
@@ -1303,6 +1312,13 @@ function AnimalsPage({
   const [facetQuery, setFacetQuery] = useState("");
   const [facetSort, setFacetSort] = useState<"count" | "alpha">("count");
   const [showForm, setShowForm] = useState(false);
+
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<Omit<MajResult, "snapshot"> | null>(null);
+
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+
+  useEffect(() => window.catApp.onMajProgress(setProgress), []);
   useEffect(() => setPage(1), [query, filters, sortBy, direction, pageSize]);
   const showSterilization = snapshot.settings.enabledSpecies.some((speciesId) =>
     registeredSpecies
@@ -1473,6 +1489,21 @@ function AnimalsPage({
       setSelectedLocations(values);
     }
   };
+
+  const handleMaj = async () => {
+  setSyncing(true);
+  setSyncResult(null);
+  setProgress({ current: 0, total: 0 });
+  try {
+    await ensureSignedIn();
+    const { snapshot: updated, ...result } = await window.catApp.MAJ();
+    setSnapshot(updated);
+    setSyncResult(result);// or show a toast
+  } finally {
+    setSyncing(false);
+  }
+};
+
   const activeFilterEntries = Object.entries(filters).filter(([, values]) => values.length > 0);
   const filteredAnimals = snapshot.animalViews.filter((animal) =>
     activeFilterEntries.every(([key, values]) => values.includes(facetValue(animal, key))),
@@ -1551,7 +1582,60 @@ function AnimalsPage({
             : `+ Nouveau ${snapshot.settings.enabledSpecies.length === 1 ? registeredSpecies.find((species) => species.id === snapshot.settings.enabledSpecies[0])?.label.singular : "animal"}`}
         </Button>
       </div>
-      {showForm && <AnimalForm snapshot={snapshot} run={run} done={() => setShowForm(false)} />}
+      <div>
+        <Button variant="primary" disabled={syncing} onClick={handleMaj}>
+  {syncing ? "Synchronisation…" : "MAJ CS"}
+</Button>
+
+{syncing && (
+  <div className="mt-2">
+    <div className="progress" role="progressbar" aria-label="Synchronisation CS">
+      <div
+        className={`progress-bar ${progress.total === 0 ? "progress-bar-striped progress-bar-animated" : ""}`}
+        style={{
+          width: progress.total ? `${(progress.current / progress.total) * 100}%` : "100%",
+        }}
+      />
+    </div>
+    <small>
+      {progress.total
+        ? `${progress.current} / ${progress.total}`
+        : "Récupération des données CS…"}
+    </small>
+  </div>
+)}
+{syncResult && (
+  <div
+    className={`alert ${syncResult.failures.length ? "alert-warning" : "alert-success"} alert-dismissible mt-2`}
+    role="alert"
+  >
+    <strong>Synchronisation terminée</strong>
+    <ul className="mb-0 mt-1">
+      <li>{syncResult.added} ajouté{syncResult.added > 1 ? "s" : ""}</li>
+      <li>{syncResult.updated} mis à jour</li>
+      {syncResult.failures.length > 0 && (
+        <li>
+          {syncResult.failures.length} en échec
+          <ul style={{ maxHeight: 200, overflowY: "auto" }}>
+            {syncResult.failures.map((f: Failure, index: number) => (
+              <li key={`${f.name}-${index}`}>{f.name} : {f.reason}</li>
+            ))}
+          </ul>
+        </li>
+      )}
+    </ul>
+   <Button
+  variant="text"
+  size="icon"
+  aria-label="Fermer"
+  onClick={() => setSyncResult(null)}
+>
+  Fermer
+</Button>
+  </div>
+)}
+      </div>
+      {showForm && <AnimalForm snapshot={snapshot}  setSnapshot={setSnapshot} run={run} done={() => setShowForm(false)} />}
       <div className="sort-toolbar" data-density="compact">
         <Field label={<>Trier par </>}>
           <select
@@ -1661,6 +1745,7 @@ function AnimalsPage({
                 <th>Adoptable</th>
                 <th>Arrivée</th>
                 <th>Lieu actuel</th>
+                 <th>Ajouté sur CS 🌐</th>
               </tr>
             </thead>
             <tbody>
@@ -1699,6 +1784,9 @@ function AnimalsPage({
                   <td>{formatDate(cat.intakeDate)}</td>
                   <td>
                     <CurrentLocation cat={cat} snapshot={snapshot} />
+                  </td>
+                   <td>
+                    {cat.isAddedToCS ? 'Oui' : 'Non'}
                   </td>
                 </tr>
               ))}
@@ -1944,6 +2032,8 @@ function AnimalDetail({
   setPage: (page: Page) => void;
 }) {
   const cat = snapshot.animalViews.find((candidate) => candidate.id === animalId)!;
+  // todo: is it the best option ? 
+  const [addedToCS, setAddedToCS] = useState(cat.isAddedToCS);
   const speciesDefinition = registeredSpecies.find((species) => species.id === cat.speciesId)!;
   const [photo, setPhoto] = useState(cat.photo ?? "");
   const [speciesData, setSpeciesData] = useState<SpeciesData>(cat.speciesData);
@@ -2055,9 +2145,10 @@ function AnimalDetail({
       String(data.get(key)) === "unknown" ? null : String(data.get(key)) === "yes";
     try {
       const savedPhoto = await cropPhotoToSquare(photo, cropX, cropY, cropScale);
-      setSnapshot(
-        await window.catApp.updateAnimal({
+
+      const inputToBeUpdated : AnimalUpdateInput = {
           id: animalId,
+          isAddedToCS: data.get("isAddedToCS") === "on",
           description: String(data.get("description")),
           photo: savedPhoto,
           compatibilityBySpecies: {
@@ -2079,9 +2170,12 @@ function AnimalDetail({
               : adoptionEligibility === "ON_HOLD"
                 ? cat.adoptionBlockedReason
                 : "",
-        }),
+        }
+      setSnapshot(
+        await window.catApp.updateAnimal(inputToBeUpdated),
       );
       setNotice({ kind: "success", text: "Fiche de l’animal mise à jour." });
+      upsertAnimalToCS(inputToBeUpdated, cat)
       close();
     } catch (error) {
       setNotice({ kind: "error", text: errorMessage(error) });
@@ -2334,6 +2428,13 @@ function AnimalDetail({
               <input type="hidden" name="deworming" value={cat.deworming || ""} />
               <input type="hidden" name="antiFlea" value={cat.antiFlea || ""} />
               <FormActions>
+                <Checkbox
+                  name="isAddedToCS"
+                  checked={addedToCS}
+                  onChange={(event) => setAddedToCS(event.target.checked)}         
+                >
+                  À mettre à jour sur le site Cœurs Sauvages
+                </Checkbox>
                 <Button variant="primary">Enregistrer la fiche</Button>
               </FormActions>
             </form>
@@ -3100,10 +3201,12 @@ function AnimalForm({
   snapshot,
   run,
   done,
+  setSnapshot,
 }: {
   snapshot: AppSnapshot;
   run: PageProps["run"];
   done: () => void;
+  setSnapshot: (snapshot: AppSnapshot) => void;
 }) {
   const [birthDate, setBirthDate] = useState("");
   const [speciesId, setSpeciesId] = useState<SpeciesId>(
@@ -3117,39 +3220,54 @@ function AnimalForm({
   );
   const automaticProfile =
     definition.deriveProfile?.(birthDate, new Date()) ?? definition.defaultProfile;
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    void run(
-      () =>
-        window.catApp.createAnimal({
-          name: String(data.get("name")),
-          speciesId,
-          speciesData,
-          identificationNumber: String(data.get("identificationNumber")),
-          birthDate: String(data.get("birthDate")),
-          sex: formOption(data, "sex", SEX_OPTIONS, "UNKNOWN"),
-          profile:
-            profileChoice === "AUTO" && definition.deriveProfile
-              ? automaticProfile
-              : (profileChoice as AnimalProfile),
-          sterilizationStatus: formOption(
-            data,
-            "sterilizationStatus",
-            STERILIZATION_OPTIONS,
-            "UNKNOWN",
-          ),
-          adoptionEligibility,
-          adoptionBlockedReason:
-            adoptionEligibility === "INELIGIBLE"
-              ? String(data.get("adoptionBlockedReason") ?? "")
-              : "",
-          intakeDate: String(data.get("intakeDate")),
-          notes: String(data.get("notes")),
-        }),
-      `Fiche de ${definition.label.singular} créée.`,
-    ).then(done);
+const submit = async (event: FormEvent<HTMLFormElement>) => {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+
+     const input : AnimalInput = {
+    name: String(data.get("name")),
+    speciesId,
+    speciesData,
+    identificationNumber: String(data.get("identificationNumber")),
+    birthDate: String(data.get("birthDate")),
+    sex: formOption(data, "sex", SEX_OPTIONS, "UNKNOWN"),
+    profile:
+      profileChoice === "AUTO" && definition.deriveProfile
+        ? automaticProfile
+        : (profileChoice as AnimalProfile),
+    sterilizationStatus: formOption(data, "sterilizationStatus", STERILIZATION_OPTIONS, "UNKNOWN"),
+    adoptionEligibility,
+    adoptionBlockedReason:
+      adoptionEligibility === "INELIGIBLE"
+        ? String(data.get("adoptionBlockedReason") ?? "")
+        : "",
+    intakeDate: String(data.get("intakeDate")),
+    notes: String(data.get("notes")),
+    isAddedToCS: data.get("isAddedToCS") === "on",
   };
+
+
+let idCS = undefined as string | undefined; // the cast stops TS from narrowing it to `undefined`
+
+if (input.isAddedToCS) {
+  await run(
+    async () => {
+      idCS = (await upsertAnimalToCS(input)) ?? undefined;
+      return snapshot; // current snapshot prop, only here to satisfy run's type
+    },
+    `${definition.label.singular} ajouté sur CS.`,
+  );
+  if (!idCS) return; // Firebase step failed, so don't create a local record
+}
+
+await run(async () => {
+  const updatedSnapshot: AppSnapshot = await window.catApp.createAnimal({ ...input, idCS });
+  setSnapshot(updatedSnapshot);
+  return updatedSnapshot;
+}, `Fiche de ${definition.label.singular} créée.`);
+done();
+
+};
   return (
     <Panel title={`Enregistrer ${definition.label.definiteSingular}`}>
       <form className="form-grid" onSubmit={submit}>
@@ -3226,6 +3344,9 @@ function AnimalForm({
           <textarea name="notes" rows={2} />
         </Field>
         <FormActions>
+         <Checkbox name= "isAddedToCS" >
+            A ajouter sur le site coeurs sauvages
+          </Checkbox>
           <Button variant="primary">Enregistrer</Button>
         </FormActions>
       </form>
